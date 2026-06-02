@@ -104,19 +104,35 @@ public final class A11yPdfDocument {
         }
 
         public Builder paragraph(String text) {
-            return paragraph(text, BoxModel.none());
+            return paragraph(text, BoxModel.none(), 1.2f);
+        }
+
+        public Builder paragraph(String text, float lineHeightMultiplier) {
+            return paragraph(text, BoxModel.none(), lineHeightMultiplier);
         }
 
         public Builder paragraph(String text, BoxModel boxModel) {
-            elements.add(new Paragraph(text, boxModel));
+            return paragraph(text, boxModel, 1.2f);
+        }
+
+        public Builder paragraph(String text, BoxModel boxModel, float lineHeightMultiplier) {
+            elements.add(new Paragraph(text, boxModel, validateLineHeight(lineHeightMultiplier)));
             return this;
         }
 
         public Builder heading(int level, String text) {
-            return heading(level, text, BoxModel.none());
+            return heading(level, text, BoxModel.none(), 1.2f);
+        }
+
+        public Builder heading(int level, String text, float lineHeightMultiplier) {
+            return heading(level, text, BoxModel.none(), lineHeightMultiplier);
         }
 
         public Builder heading(int level, String text, BoxModel boxModel) {
+            return heading(level, text, boxModel, 1.2f);
+        }
+
+        public Builder heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier) {
             if (level < 1 || level > 6) {
                 throw new IllegalArgumentException("heading level must be between 1 and 6");
             }
@@ -124,7 +140,7 @@ public final class A11yPdfDocument {
                 throw new IllegalStateException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
             }
             lastHeadingLevel = level;
-            elements.add(new Heading(level, text, boxModel));
+            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier)));
             return this;
         }
 
@@ -237,7 +253,7 @@ public final class A11yPdfDocument {
 
                 float x = settings.columnX(columnIndex, columns, columnGap);
                 float contentX = x + measuredBlock.boxModel().paddingLeft();
-                float contentY = currentY + measuredBlock.boxModel().paddingTop();
+                float contentY = currentY + measuredBlock.boxModel().marginTop() + measuredBlock.boxModel().paddingTop();
                 blocks.add(new LayoutBlock(
                         measuredBlock.role(),
                         pageIndex,
@@ -252,6 +268,7 @@ public final class A11yPdfDocument {
                     measuredBlock.contentHeight(),
                     measuredBlock.boxModel(),
                         measuredBlock.lineHeight(),
+                        measuredBlock.lineHeightMultiplier(),
                         measuredBlock.fontSize(),
                         measuredBlock.keepWithNext(),
                         measuredBlock.lines()));
@@ -265,7 +282,7 @@ public final class A11yPdfDocument {
         private MeasuredBlock measureBlock(Element element, float availableWidth) {
             if (element instanceof Heading heading) {
                 float fontSize = 22.0f - ((heading.level - 1) * 2.0f);
-                float lineHeight = fontSize * 1.2f;
+                float lineHeight = fontSize * heading.lineHeightMultiplier;
                 float contentWidth = resolveContentWidth(availableWidth, heading.boxModel);
                 List<String> lines = wrapText(heading.text, contentWidth, fontSize * 0.55f);
                 float textHeight = lines.size() * lineHeight;
@@ -273,9 +290,10 @@ public final class A11yPdfDocument {
                         mapHeadingType(heading.level),
                         List.copyOf(lines),
                         lineHeight,
+                        heading.lineHeightMultiplier,
                         fontSize,
                         heading.boxModel,
-                        textHeight + heading.boxModel.verticalPadding() + heading.boxModel.marginBottom(),
+                        textHeight + heading.boxModel.marginTop() + heading.boxModel.verticalPadding() + heading.boxModel.marginBottom(),
                         true,
                         contentWidth,
                         textHeight);
@@ -283,7 +301,7 @@ public final class A11yPdfDocument {
 
             Paragraph paragraph = (Paragraph) element;
             float fontSize = 12.0f;
-            float lineHeight = fontSize * 1.2f;
+            float lineHeight = fontSize * paragraph.lineHeightMultiplier;
             float contentWidth = resolveContentWidth(availableWidth, paragraph.boxModel);
             List<String> lines = wrapText(paragraph.text, contentWidth, fontSize * 0.5f);
             float textHeight = lines.size() * lineHeight;
@@ -291,12 +309,20 @@ public final class A11yPdfDocument {
                     StandardStructureTypes.P,
                     List.copyOf(lines),
                     lineHeight,
+                    paragraph.lineHeightMultiplier,
                     fontSize,
                     paragraph.boxModel,
-                    textHeight + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom(),
+                    textHeight + paragraph.boxModel.marginTop() + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom(),
                     false,
                     contentWidth,
                     textHeight);
+        }
+
+        private float validateLineHeight(float lineHeightMultiplier) {
+            if (lineHeightMultiplier <= 0.0f) {
+                throw new IllegalArgumentException("lineHeight multiplier must be > 0");
+            }
+            return lineHeightMultiplier;
         }
 
         private float resolveContentWidth(float availableWidth, BoxModel boxModel) {
@@ -464,21 +490,25 @@ public final class A11yPdfDocument {
         private final int level;
         private final String text;
         private final BoxModel boxModel;
+        private final float lineHeightMultiplier;
 
-        private Heading(int level, String text, BoxModel boxModel) {
+        private Heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier) {
             this.level = level;
             this.text = text;
             this.boxModel = boxModel;
+            this.lineHeightMultiplier = lineHeightMultiplier;
         }
     }
 
     private static final class Paragraph implements Element {
         private final String text;
         private final BoxModel boxModel;
+        private final float lineHeightMultiplier;
 
-        private Paragraph(String text, BoxModel boxModel) {
+        private Paragraph(String text, BoxModel boxModel, float lineHeightMultiplier) {
             this.text = text;
             this.boxModel = boxModel;
+            this.lineHeightMultiplier = lineHeightMultiplier;
         }
     }
 
@@ -505,6 +535,7 @@ public final class A11yPdfDocument {
             String role,
             List<String> lines,
             float lineHeight,
+            float lineHeightMultiplier,
             float fontSize,
             BoxModel boxModel,
             float height,
@@ -536,12 +567,14 @@ public final class A11yPdfDocument {
             float contentHeight,
             BoxModel boxModel,
             float lineHeight,
+            float lineHeightMultiplier,
             float fontSize,
             boolean keepWithNext,
             List<String> lines) {
     }
 
     public record BoxModel(
+            float marginTop,
             float paddingTop,
             float paddingRight,
             float paddingBottom,
@@ -549,13 +582,13 @@ public final class A11yPdfDocument {
             float marginBottom) {
 
         public BoxModel {
-            if (paddingTop < 0.0f || paddingRight < 0.0f || paddingBottom < 0.0f || paddingLeft < 0.0f || marginBottom < 0.0f) {
+            if (marginTop < 0.0f || paddingTop < 0.0f || paddingRight < 0.0f || paddingBottom < 0.0f || paddingLeft < 0.0f || marginBottom < 0.0f) {
                 throw new IllegalArgumentException("Box model values must be >= 0");
             }
         }
 
         public static BoxModel none() {
-            return new BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            return new BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         }
 
         float horizontalPadding() {

@@ -20,6 +20,7 @@ class A11yPdfDocumentLayoutTest {
         assertEquals("P", paragraph.role());
         assertTrue(paragraph.lines().size() > 1);
         assertEquals(paragraph.fontSize() * 1.2f, paragraph.lineHeight(), 0.0001f);
+        assertEquals(1.2f, paragraph.lineHeightMultiplier(), 0.0001f);
         assertEquals(paragraph.lines().size() * paragraph.lineHeight(), paragraph.contentHeight(), 0.0001f);
         assertEquals(paragraph.contentHeight(), paragraph.height(), 0.0001f);
     }
@@ -48,7 +49,7 @@ class A11yPdfDocumentLayoutTest {
 
     @Test
     void layoutBlueprint_shouldResolveExplicitBoxModelForParagraph() {
-        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(4.0f, 6.0f, 8.0f, 10.0f, 12.0f);
+        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(3.0f, 4.0f, 6.0f, 8.0f, 10.0f, 12.0f);
 
         A11yPdfDocument.LayoutBlueprint blueprint = A11yPdfDocument.builder()
                 .pageSize(300.0f, 300.0f)
@@ -60,14 +61,14 @@ class A11yPdfDocumentLayoutTest {
 
         assertEquals(boxModel, paragraph.boxModel());
         assertEquals(paragraph.x() + boxModel.paddingLeft(), paragraph.contentX(), 0.0001f);
-        assertEquals(paragraph.y() + boxModel.paddingTop(), paragraph.contentY(), 0.0001f);
+        assertEquals(paragraph.y() + boxModel.marginTop() + boxModel.paddingTop(), paragraph.contentY(), 0.0001f);
         assertEquals(paragraph.width() - boxModel.paddingLeft() - boxModel.paddingRight(), paragraph.contentWidth(), 0.0001f);
-        assertEquals(paragraph.contentHeight() + boxModel.paddingTop() + boxModel.paddingBottom() + boxModel.marginBottom(), paragraph.height(), 0.0001f);
+        assertEquals(paragraph.contentHeight() + boxModel.marginTop() + boxModel.paddingTop() + boxModel.paddingBottom() + boxModel.marginBottom(), paragraph.height(), 0.0001f);
     }
 
     @Test
     void layoutBlueprint_shouldFlowAcrossColumnsAndThenPages() {
-        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 4.0f);
+        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f);
 
         A11yPdfDocument.LayoutBlueprint blueprint = A11yPdfDocument.builder()
                 .pageSize(220.0f, 70.0f)
@@ -93,5 +94,24 @@ class A11yPdfDocumentLayoutTest {
         assertEquals(1, blueprint.blocks().get(3).columnIndex());
         assertEquals(2, blueprint.blocks().get(4).pageIndex());
         assertEquals(0, blueprint.blocks().get(4).columnIndex());
+    }
+
+    @Test
+    void layoutBlueprint_shouldApplyCustomLineHeightPerElement() {
+        A11yPdfDocument.LayoutBlueprint blueprint = A11yPdfDocument.builder()
+                .pageSize(260.0f, 300.0f)
+                .pageMargin(20.0f)
+                .heading(2, "Custom heading", 1.5f)
+                .paragraph("custom line height paragraph example", 1.8f)
+                .layoutBlueprint();
+
+        A11yPdfDocument.LayoutBlock heading = blueprint.blocks().get(0);
+        A11yPdfDocument.LayoutBlock paragraph = blueprint.blocks().get(1);
+
+        assertEquals(1.5f, heading.lineHeightMultiplier(), 0.0001f);
+        assertEquals(heading.fontSize() * 1.5f, heading.lineHeight(), 0.0001f);
+
+        assertEquals(1.8f, paragraph.lineHeightMultiplier(), 0.0001f);
+        assertEquals(paragraph.fontSize() * 1.8f, paragraph.lineHeight(), 0.0001f);
     }
 }
