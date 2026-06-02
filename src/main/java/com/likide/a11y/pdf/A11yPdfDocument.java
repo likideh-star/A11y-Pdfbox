@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.pdfbox.cos.COSDictionary;
@@ -28,6 +29,8 @@ import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferenc
  */
 public final class A11yPdfDocument {
 
+    private static final float DEFAULT_PAGE_MARGIN = 72.0f;
+
     private A11yPdfDocument() {
     }
 
@@ -41,6 +44,12 @@ public final class A11yPdfDocument {
         private boolean displayDocTitle = true;
         private int columns = 1;
         private float columnGap = 0.0f;
+        private float pageWidth = PDRectangle.A4.getWidth();
+        private float pageHeight = PDRectangle.A4.getHeight();
+        private float marginTop = DEFAULT_PAGE_MARGIN;
+        private float marginRight = DEFAULT_PAGE_MARGIN;
+        private float marginBottom = DEFAULT_PAGE_MARGIN;
+        private float marginLeft = DEFAULT_PAGE_MARGIN;
         private String artifactHeaderFooterPattern;
 
         private final List<Element> elements = new ArrayList<>();
@@ -70,12 +79,44 @@ public final class A11yPdfDocument {
             return this;
         }
 
+        public Builder pageSize(float width, float height) {
+            if (width <= 0.0f || height <= 0.0f) {
+                throw new IllegalArgumentException("page size must be > 0");
+            }
+            this.pageWidth = width;
+            this.pageHeight = height;
+            return this;
+        }
+
+        public Builder pageMargins(float top, float right, float bottom, float left) {
+            if (top < 0.0f || right < 0.0f || bottom < 0.0f || left < 0.0f) {
+                throw new IllegalArgumentException("page margins must be >= 0");
+            }
+            this.marginTop = top;
+            this.marginRight = right;
+            this.marginBottom = bottom;
+            this.marginLeft = left;
+            return this;
+        }
+
+        public Builder pageMargin(float value) {
+            return pageMargins(value, value, value, value);
+        }
+
         public Builder paragraph(String text) {
-            elements.add(new Paragraph(text));
+            return paragraph(text, BoxModel.none());
+        }
+
+        public Builder paragraph(String text, BoxModel boxModel) {
+            elements.add(new Paragraph(text, boxModel));
             return this;
         }
 
         public Builder heading(int level, String text) {
+            return heading(level, text, BoxModel.none());
+        }
+
+        public Builder heading(int level, String text, BoxModel boxModel) {
             if (level < 1 || level > 6) {
                 throw new IllegalArgumentException("heading level must be between 1 and 6");
             }
@@ -83,7 +124,7 @@ public final class A11yPdfDocument {
                 throw new IllegalStateException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
             }
             lastHeadingLevel = level;
-            elements.add(new Heading(level, text));
+            elements.add(new Heading(level, text, boxModel));
             return this;
         }
 
@@ -106,9 +147,13 @@ public final class A11yPdfDocument {
             return this;
         }
 
+        public LayoutBlueprint layoutBlueprint() {
+            return analyzeLayout();
+        }
+
         public byte[] buildBytes() {
             try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                PDPage page = new PDPage(PDRectangle.LETTER);
+                PDPage page = new PDPage(new PDRectangle(pageWidth, pageHeight));
                 page.getCOSObject().setItem(COSName.getPDFName("Tabs"), COSName.S);
                 doc.addPage(page);
 
@@ -140,6 +185,179 @@ public final class A11yPdfDocument {
             catalog.setMetadata(metadata);
 
             catalog.setNames(new PDDocumentNameDictionary(catalog));
+        }
+
+        private LayoutBlueprint analyzeLayout() {
+            PageSettings settings = new PageSettings(
+                    pageWidth,
+                    pageHeight,
+                    marginTop,
+                    marginRight,
+                    marginBottom,
+                    marginLeft);
+
+            float columnWidth = settings.columnWidth(columns, columnGap);
+            float usableHeight = settings.usableHeight();
+            if (columnWidth <= 0.0f) {
+                throw new IllegalStateException("Page width and margins leave no room for content");
+            }
+            if (usableHeight <= 0.0f) {
+                throw new IllegalStateException("Page height and margins leave no room for content");
+            }
+
+            List<LayoutBlock> blocks = new ArrayList<>();
+            int pageIndex = 0;
+            int columnIndex = 0;
+            float currentY = settings.topMargin();
+
+            for (int elementIndex = 0; elementIndex < elements.size(); elementIndex++) {
+                Element element = elements.get(elementIndex);
+                if (!(element instanceof Heading) && !(element instanceof Paragraph)) {
+                    continue;
+                }
+
+                MeasuredBlock measuredBlock = measureBlock(element, columnWidth);
+                float requiredHeight = measuredBlock.height();
+                if (measuredBlock.keepWithNext() && elementIndex + 1 < elements.size()) {
+                    Element nextElement = elements.get(elementIndex + 1);
+                    if (nextElement instanceof Paragraph) {
+                        MeasuredBlock nextMeasured = measureBlock(nextElement, columnWidth);
+                        requiredHeight += Math.min(nextMeasured.height(), nextMeasured.lineHeight());
+                    }
+                }
+
+                if (currentY + requiredHeight > settings.topMargin() + usableHeight) {
+                    columnIndex++;
+                    if (columnIndex >= columns) {
+                        columnIndex = 0;
+                        pageIndex++;
+                    }
+                    currentY = settings.topMargin();
+                }
+
+                float x = settings.columnX(columnIndex, columns, columnGap);
+                float contentX = x + measuredBlock.boxModel().paddingLeft();
+                float contentY = currentY + measuredBlock.boxModel().paddingTop();
+                blocks.add(new LayoutBlock(
+                        measuredBlock.role(),
+                        pageIndex,
+                        columnIndex,
+                        x,
+                        currentY,
+                        columnWidth,
+                        measuredBlock.height(),
+                    contentX,
+                    contentY,
+                    measuredBlock.contentWidth(),
+                    measuredBlock.contentHeight(),
+                    measuredBlock.boxModel(),
+                        measuredBlock.lineHeight(),
+                        measuredBlock.fontSize(),
+                        measuredBlock.keepWithNext(),
+                        measuredBlock.lines()));
+                currentY += measuredBlock.height();
+            }
+
+            int pageCount = blocks.isEmpty() ? 1 : blocks.get(blocks.size() - 1).pageIndex() + 1;
+            return new LayoutBlueprint(List.copyOf(blocks), pageCount, columnWidth, columns, columnGap, settings);
+        }
+
+        private MeasuredBlock measureBlock(Element element, float availableWidth) {
+            if (element instanceof Heading heading) {
+                float fontSize = 22.0f - ((heading.level - 1) * 2.0f);
+                float lineHeight = fontSize * 1.2f;
+                float contentWidth = resolveContentWidth(availableWidth, heading.boxModel);
+                List<String> lines = wrapText(heading.text, contentWidth, fontSize * 0.55f);
+                float textHeight = lines.size() * lineHeight;
+                return new MeasuredBlock(
+                        mapHeadingType(heading.level),
+                        List.copyOf(lines),
+                        lineHeight,
+                        fontSize,
+                        heading.boxModel,
+                        textHeight + heading.boxModel.verticalPadding() + heading.boxModel.marginBottom(),
+                        true,
+                        contentWidth,
+                        textHeight);
+            }
+
+            Paragraph paragraph = (Paragraph) element;
+            float fontSize = 12.0f;
+            float lineHeight = fontSize * 1.2f;
+            float contentWidth = resolveContentWidth(availableWidth, paragraph.boxModel);
+            List<String> lines = wrapText(paragraph.text, contentWidth, fontSize * 0.5f);
+            float textHeight = lines.size() * lineHeight;
+            return new MeasuredBlock(
+                    StandardStructureTypes.P,
+                    List.copyOf(lines),
+                    lineHeight,
+                    fontSize,
+                    paragraph.boxModel,
+                    textHeight + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom(),
+                    false,
+                    contentWidth,
+                    textHeight);
+        }
+
+        private float resolveContentWidth(float availableWidth, BoxModel boxModel) {
+            float contentWidth = availableWidth - boxModel.horizontalPadding();
+            if (contentWidth <= 0.0f) {
+                throw new IllegalStateException("Element box model leaves no room for content");
+            }
+            return contentWidth;
+        }
+
+        private List<String> wrapText(String text, float availableWidth, float averageCharWidth) {
+            if (text == null || text.isBlank()) {
+                return Collections.singletonList("");
+            }
+
+            int maxCharsPerLine = Math.max(1, (int) Math.floor(availableWidth / averageCharWidth));
+            String[] words = text.trim().split("\\s+");
+            List<String> lines = new ArrayList<>();
+            StringBuilder currentLine = new StringBuilder();
+
+            for (String word : words) {
+                if (word.length() > maxCharsPerLine) {
+                    if (!currentLine.isEmpty()) {
+                        lines.add(currentLine.toString());
+                        currentLine.setLength(0);
+                    }
+                    lines.addAll(splitLongWord(word, maxCharsPerLine));
+                    continue;
+                }
+
+                if (currentLine.isEmpty()) {
+                    currentLine.append(word);
+                    continue;
+                }
+
+                if (currentLine.length() + 1 + word.length() <= maxCharsPerLine) {
+                    currentLine.append(' ').append(word);
+                    continue;
+                }
+
+                lines.add(currentLine.toString());
+                currentLine.setLength(0);
+                currentLine.append(word);
+            }
+
+            if (!currentLine.isEmpty()) {
+                lines.add(currentLine.toString());
+            }
+
+            return lines.isEmpty() ? Collections.singletonList("") : lines;
+        }
+
+        private List<String> splitLongWord(String word, int maxCharsPerLine) {
+            List<String> parts = new ArrayList<>();
+            int start = 0;
+            while (start < word.length()) {
+                int end = Math.min(word.length(), start + maxCharsPerLine);
+                parts.add(word.substring(start, end));
+                start = end;
+            }
+            return parts;
         }
 
         private void buildStructureTree(PDDocument doc) {
@@ -244,21 +462,23 @@ public final class A11yPdfDocument {
 
     private static final class Heading implements Element {
         private final int level;
-        @SuppressWarnings("unused")
         private final String text;
+        private final BoxModel boxModel;
 
-        private Heading(int level, String text) {
+        private Heading(int level, String text, BoxModel boxModel) {
             this.level = level;
             this.text = text;
+            this.boxModel = boxModel;
         }
     }
 
     private static final class Paragraph implements Element {
-        @SuppressWarnings("unused")
         private final String text;
+        private final BoxModel boxModel;
 
-        private Paragraph(String text) {
+        private Paragraph(String text, BoxModel boxModel) {
             this.text = text;
+            this.boxModel = boxModel;
         }
     }
 
@@ -279,5 +499,96 @@ public final class A11yPdfDocument {
 
     private static final class ListBlock implements Element {
         private final List<String> items = new ArrayList<>();
+    }
+
+    private record MeasuredBlock(
+            String role,
+            List<String> lines,
+            float lineHeight,
+            float fontSize,
+            BoxModel boxModel,
+            float height,
+            boolean keepWithNext,
+            float contentWidth,
+            float contentHeight) {
+    }
+
+    public record LayoutBlueprint(
+            List<LayoutBlock> blocks,
+            int pageCount,
+            float columnWidth,
+            int columnCount,
+            float columnGap,
+            PageSettings pageSettings) {
+    }
+
+    public record LayoutBlock(
+            String role,
+            int pageIndex,
+            int columnIndex,
+            float x,
+            float y,
+            float width,
+            float height,
+            float contentX,
+            float contentY,
+            float contentWidth,
+            float contentHeight,
+            BoxModel boxModel,
+            float lineHeight,
+            float fontSize,
+            boolean keepWithNext,
+            List<String> lines) {
+    }
+
+    public record BoxModel(
+            float paddingTop,
+            float paddingRight,
+            float paddingBottom,
+            float paddingLeft,
+            float marginBottom) {
+
+        public BoxModel {
+            if (paddingTop < 0.0f || paddingRight < 0.0f || paddingBottom < 0.0f || paddingLeft < 0.0f || marginBottom < 0.0f) {
+                throw new IllegalArgumentException("Box model values must be >= 0");
+            }
+        }
+
+        public static BoxModel none() {
+            return new BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        }
+
+        float horizontalPadding() {
+            return paddingLeft + paddingRight;
+        }
+
+        float verticalPadding() {
+            return paddingTop + paddingBottom;
+        }
+    }
+
+    public record PageSettings(
+            float pageWidth,
+            float pageHeight,
+            float topMargin,
+            float rightMargin,
+            float bottomMargin,
+            float leftMargin) {
+
+        float usableWidth() {
+            return pageWidth - leftMargin - rightMargin;
+        }
+
+        float usableHeight() {
+            return pageHeight - topMargin - bottomMargin;
+        }
+
+        float columnWidth(int columnCount, float columnGap) {
+            return (usableWidth() - ((columnCount - 1) * columnGap)) / columnCount;
+        }
+
+        float columnX(int columnIndex, int columnCount, float columnGap) {
+            return leftMargin + (columnIndex * columnWidth(columnCount, columnGap)) + (columnIndex * columnGap);
+        }
     }
 }
