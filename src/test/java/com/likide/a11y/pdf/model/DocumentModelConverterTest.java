@@ -2,6 +2,7 @@ package com.likide.a11y.pdf.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -114,5 +115,66 @@ class DocumentModelConverterTest {
         IntermediateDocument converted = A11yPdfDocument.fromDeclarative(declarative).toIntermediateModel();
 
         assertEquals(fluent, converted);
+    }
+
+    @Test
+    void declarativeConversion_shouldSupportTableTocAndCustomFamilies() {
+        DeclarativeDocument input = new DeclarativeDocument();
+
+        DeclarativeTable table = new DeclarativeTable();
+        table.headerCells.add("Name");
+        table.headerCells.add("Value");
+        DeclarativeTableRow row = new DeclarativeTableRow();
+        row.cells.add("A");
+        row.cells.add("1");
+        table.rows.add(row);
+        table.semantic = new DeclarativeSemanticMetadata();
+        table.semantic.roleHint = "data-grid";
+        input.nodes.add(table);
+
+        DeclarativeToc toc = new DeclarativeToc();
+        toc.title = "Overview";
+        toc.maxDepth = 3;
+        input.nodes.add(toc);
+
+        DeclarativeCustomNode custom = new DeclarativeCustomNode();
+        custom.family = "future.analytics";
+        custom.type = "KpiWidget";
+        custom.attributes.put("metric", "views");
+        custom.semantic = new DeclarativeSemanticMetadata();
+        custom.semantic.structureTag = "Sect";
+        input.nodes.add(custom);
+
+        IntermediateDocument converted = DocumentModelConverter.fromDeclarative(input);
+
+        assertEquals(3, converted.nodes().size());
+
+        IntermediateTable convertedTable = (IntermediateTable) converted.nodes().get(0);
+        assertEquals("Table", convertedTable.semantic().structureTag());
+        assertEquals("data-grid", convertedTable.semantic().roleHint());
+        assertEquals("table", convertedTable.semantic().nodeFamily());
+        assertEquals(1, convertedTable.rows().size());
+
+        IntermediateToc convertedToc = (IntermediateToc) converted.nodes().get(1);
+        assertEquals(3, convertedToc.maxDepth());
+        assertEquals("toc", convertedToc.semantic().nodeFamily());
+
+        IntermediateCustomNode convertedCustom = (IntermediateCustomNode) converted.nodes().get(2);
+        assertEquals("future.analytics", convertedCustom.family());
+        assertEquals("KpiWidget", convertedCustom.type());
+        assertEquals("Sect", convertedCustom.semantic().structureTag());
+        assertEquals("future.analytics", convertedCustom.semantic().nodeFamily());
+        assertEquals("views", convertedCustom.attributes().get("metric"));
+    }
+
+    @Test
+    void fromDeclarativeBuilder_shouldRejectNodesNotYetMaterializedByFluentBuilder() {
+        DeclarativeDocument input = new DeclarativeDocument();
+        DeclarativeTable table = new DeclarativeTable();
+        table.headerCells.add("Only");
+        input.nodes.add(table);
+
+        ValidationException ex = assertThrows(ValidationException.class, () -> A11yPdfDocument.fromDeclarative(input));
+        assertTrue(ex.getMessage().contains("cannot materialize"));
     }
 }

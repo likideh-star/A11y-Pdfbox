@@ -6,4 +6,5 @@ public final class DeclarativeHeading implements DeclarativeNode {
     public String text;
     public DeclarativeTextStyle style;
     public DeclarativeBoxModel boxModel;
+    public DeclarativeSemanticMetadata semantic;
 }

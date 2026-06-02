@@ -5,4 +5,5 @@ public final class DeclarativeParagraph implements DeclarativeNode {
     public String text;
     public DeclarativeTextStyle style;
     public DeclarativeBoxModel boxModel;
+    public DeclarativeSemanticMetadata semantic;
 }

@@ -91,6 +91,10 @@ public final class A11yPdfDocument {
                     listBuilder.item(item);
                 }
                 listBuilder.endList();
+            } else {
+                throw new ValidationException(
+                        "fromDeclarative(...) cannot materialize intermediate node yet: "
+                                + node.getClass().getSimpleName());
             }
         }
 

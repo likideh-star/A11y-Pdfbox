@@ -2,6 +2,7 @@ package com.likide.a11y.pdf.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 
@@ -28,20 +29,20 @@ public final class DocumentModelConverter {
                         heading.level(),
                         heading.text(),
                         heading.style(),
-                        new SemanticMetadata("H" + heading.level())));
+                        new SemanticMetadata("H" + heading.level(), null, "core")));
             } else if (node instanceof FluentParagraphNode paragraph) {
                 nodes.add(new IntermediateParagraph(
                         paragraph.text(),
                         paragraph.style(),
-                        new SemanticMetadata("P")));
+                        new SemanticMetadata("P", null, "core")));
             } else if (node instanceof FluentFigureNode figure) {
                 nodes.add(new IntermediateFigure(
                         figure.pathOrId(),
                         figure.altText(),
                         figure.decorative(),
-                        new SemanticMetadata("Figure")));
+                        new SemanticMetadata("Figure", null, "core")));
             } else if (node instanceof FluentListNode list) {
-                nodes.add(new IntermediateList(List.copyOf(list.items()), new SemanticMetadata("L")));
+                nodes.add(new IntermediateList(List.copyOf(list.items()), new SemanticMetadata("L", null, "core")));
             }
         }
         return new IntermediateDocument(
@@ -115,13 +116,13 @@ public final class DocumentModelConverter {
                     level,
                     nullToEmpty(heading.text),
                     resolveStyle(heading.style, heading.boxModel),
-                    new SemanticMetadata("H" + level));
+                    resolveSemantic("H" + level, heading.semantic, "core"));
         }
         if (node instanceof DeclarativeParagraph paragraph) {
             return new IntermediateParagraph(
                     nullToEmpty(paragraph.text),
                     resolveStyle(paragraph.style, paragraph.boxModel),
-                    new SemanticMetadata("P"));
+                    resolveSemantic("P", paragraph.semantic, "core"));
         }
         if (node instanceof DeclarativeFigure figure) {
             boolean decorative = figure.decorative != null && figure.decorative;
@@ -132,12 +133,62 @@ public final class DocumentModelConverter {
                     nullToEmpty(figure.pathOrId),
                     figure.altText,
                     decorative,
-                    new SemanticMetadata("Figure"));
+                    resolveSemantic("Figure", figure.semantic, "core"));
         }
         if (node instanceof DeclarativeList list) {
-            return new IntermediateList(List.copyOf(list.items), new SemanticMetadata("L"));
+            return new IntermediateList(List.copyOf(list.items), resolveSemantic("L", list.semantic, "core"));
+        }
+        if (node instanceof DeclarativeTable table) {
+            if (table.headerCells.isEmpty() && table.rows.isEmpty()) {
+                throw new ValidationException("table must define header cells or rows");
+            }
+
+            List<IntermediateTableRow> rows = new ArrayList<>();
+            for (DeclarativeTableRow row : table.rows) {
+                if (row != null) {
+                    rows.add(new IntermediateTableRow(List.copyOf(row.cells)));
+                }
+            }
+
+            return new IntermediateTable(
+                    List.copyOf(table.headerCells),
+                    List.copyOf(rows),
+                    resolveSemantic("Table", table.semantic, "table"));
+        }
+        if (node instanceof DeclarativeToc toc) {
+            int maxDepth = toc.maxDepth == null ? 6 : toc.maxDepth;
+            if (maxDepth < 1) {
+                throw new ValidationException("TOC maxDepth must be >= 1");
+            }
+            return new IntermediateToc(
+                    nullToEmpty(toc.title),
+                    maxDepth,
+                    resolveSemantic("TOC", toc.semantic, "toc"));
+        }
+        if (node instanceof DeclarativeCustomNode custom) {
+            if (isBlank(custom.family)) {
+                throw new ValidationException("Custom node family must not be blank");
+            }
+            if (isBlank(custom.type)) {
+                throw new ValidationException("Custom node type must not be blank");
+            }
+            return new IntermediateCustomNode(
+                    custom.family,
+                    custom.type,
+                    Map.copyOf(custom.attributes),
+                    resolveSemantic("Custom", custom.semantic, custom.family));
         }
         throw new ValidationException("Unsupported declarative node type: " + node.getClass().getName());
+    }
+
+    private static SemanticMetadata resolveSemantic(String defaultTag, DeclarativeSemanticMetadata semantic, String defaultFamily) {
+        if (semantic == null) {
+            return new SemanticMetadata(defaultTag, null, defaultFamily);
+        }
+        return new SemanticMetadata(
+                isBlank(semantic.structureTag) ? defaultTag : semantic.structureTag,
+                isBlank(semantic.roleHint) ? null : semantic.roleHint,
+                isBlank(semantic.nodeFamily) ? defaultFamily : semantic.nodeFamily);
     }
 
     private static IntermediateTextStyle resolveStyle(DeclarativeTextStyle style, DeclarativeBoxModel boxModel) {

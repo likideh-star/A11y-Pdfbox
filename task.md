@@ -15,10 +15,11 @@ This document converts the PRD into execution milestones with concrete deliverab
 1. Milestone 1 baseline completed: package ownership boundaries, exception hierarchy, Maven baseline gates, and README developer workflow are in place.
 2. Default `mvn test` now passes without adapter shortcut assumptions, backed by a direct smoke test.
 3. Milestone 2 foundation implemented: declarative POJOs, unified intermediate model, and conversion layer from fluent and declarative inputs.
-4. Conversion tests cover defaults, invalid input validation, and fluent/declarative equivalence for heading, paragraph, figure, and list nodes.
-5. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
-6. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
-7. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
+4. Node/support coverage expanded for table, TOC, and custom future-family nodes with richer semantic metadata (`structureTag`, `roleHint`, `nodeFamily`).
+5. Conversion tests now cover defaults, invalid input validation, fluent/declarative equivalence, broader node conversion, and unsupported fluent materialization guardrails.
+6. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
+7. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
+8. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
 
 ### Next Focus
 
