@@ -22,6 +22,22 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
+import com.likide.a11y.pdf.model.DeclarativeDocument;
+import com.likide.a11y.pdf.model.DocumentModelConverter;
+import com.likide.a11y.pdf.model.FluentDocumentSnapshot;
+import com.likide.a11y.pdf.model.FluentFigureNode;
+import com.likide.a11y.pdf.model.FluentHeadingNode;
+import com.likide.a11y.pdf.model.FluentListNode;
+import com.likide.a11y.pdf.model.FluentNode;
+import com.likide.a11y.pdf.model.FluentParagraphNode;
+import com.likide.a11y.pdf.model.IntermediateBoxModel;
+import com.likide.a11y.pdf.model.IntermediateDocument;
+import com.likide.a11y.pdf.model.IntermediateFigure;
+import com.likide.a11y.pdf.model.IntermediateHeading;
+import com.likide.a11y.pdf.model.IntermediateList;
+import com.likide.a11y.pdf.model.IntermediateNode;
+import com.likide.a11y.pdf.model.IntermediateParagraph;
+import com.likide.a11y.pdf.model.IntermediateTextStyle;
 import com.likide.a11y.pdf.rendering.RenderingException;
 import com.likide.a11y.pdf.validation.ValidationException;
 
@@ -39,6 +55,56 @@ public final class A11yPdfDocument {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public static Builder fromDeclarative(DeclarativeDocument document) {
+        IntermediateDocument model = DocumentModelConverter.fromDeclarative(document);
+        Builder builder = builder()
+                .lang(model.lang())
+                .title(model.title())
+                .displayDocTitle(model.displayDocTitle())
+                .columns(model.pageSettings().columns(), model.pageSettings().columnGap())
+                .pageSize(model.pageSettings().pageWidth(), model.pageSettings().pageHeight())
+                .pageMargins(
+                        model.pageSettings().marginTop(),
+                        model.pageSettings().marginRight(),
+                        model.pageSettings().marginBottom(),
+                        model.pageSettings().marginLeft());
+
+        for (IntermediateNode node : model.nodes()) {
+            if (node instanceof IntermediateHeading heading) {
+                builder.heading(
+                        heading.level(),
+                        heading.text(),
+                        fromIntermediateBoxModel(heading.style().boxModel()),
+                        heading.style().lineHeightMultiplier());
+            } else if (node instanceof IntermediateParagraph paragraph) {
+                builder.paragraph(
+                        paragraph.text(),
+                        fromIntermediateBoxModel(paragraph.style().boxModel()),
+                        paragraph.style().lineHeightMultiplier());
+            } else if (node instanceof IntermediateFigure figure) {
+                builder.image(figure.pathOrId(), figure.altText(), figure.decorative());
+            } else if (node instanceof IntermediateList list) {
+                ListBuilder listBuilder = builder.unorderedList();
+                for (String item : list.items()) {
+                    listBuilder.item(item);
+                }
+                listBuilder.endList();
+            }
+        }
+
+        return builder;
+    }
+
+    private static BoxModel fromIntermediateBoxModel(IntermediateBoxModel boxModel) {
+        return new BoxModel(
+                boxModel.marginTop(),
+                boxModel.paddingTop(),
+                boxModel.paddingRight(),
+                boxModel.paddingBottom(),
+                boxModel.paddingLeft(),
+                boxModel.marginBottom());
     }
 
     public static final class Builder {
@@ -168,6 +234,61 @@ public final class A11yPdfDocument {
 
         public LayoutBlueprint layoutBlueprint() {
             return analyzeLayout();
+        }
+
+        public IntermediateDocument toIntermediateModel() {
+            return DocumentModelConverter.fromFluent(toFluentSnapshot());
+        }
+
+        private FluentDocumentSnapshot toFluentSnapshot() {
+            List<FluentNode> nodes = new ArrayList<>();
+            for (Element element : elements) {
+                if (element instanceof Heading heading) {
+                    nodes.add(new FluentHeadingNode(
+                            heading.level,
+                            heading.text,
+                            new IntermediateTextStyle(
+                                    heading.lineHeightMultiplier,
+                                    new IntermediateBoxModel(
+                                            heading.boxModel.marginTop(),
+                                            heading.boxModel.paddingTop(),
+                                            heading.boxModel.paddingRight(),
+                                            heading.boxModel.paddingBottom(),
+                                            heading.boxModel.paddingLeft(),
+                                            heading.boxModel.marginBottom()))));
+                } else if (element instanceof Paragraph paragraph) {
+                    nodes.add(new FluentParagraphNode(
+                            paragraph.text,
+                            new IntermediateTextStyle(
+                                    paragraph.lineHeightMultiplier,
+                                    new IntermediateBoxModel(
+                                            paragraph.boxModel.marginTop(),
+                                            paragraph.boxModel.paddingTop(),
+                                            paragraph.boxModel.paddingRight(),
+                                            paragraph.boxModel.paddingBottom(),
+                                            paragraph.boxModel.paddingLeft(),
+                                            paragraph.boxModel.marginBottom()))));
+                } else if (element instanceof Figure figure) {
+                    nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
+                } else if (element instanceof ListBlock listBlock) {
+                    nodes.add(new FluentListNode(List.copyOf(listBlock.items)));
+                }
+            }
+
+            return new FluentDocumentSnapshot(
+                    lang,
+                    title,
+                    displayDocTitle,
+                    new com.likide.a11y.pdf.model.IntermediatePageSettings(
+                            columns,
+                            columnGap,
+                            pageWidth,
+                            pageHeight,
+                            marginTop,
+                            marginRight,
+                            marginBottom,
+                            marginLeft),
+                    List.copyOf(nodes));
         }
 
         public byte[] buildBytes() {
