@@ -2,6 +2,23 @@
 
 This document converts the PRD into execution milestones with concrete deliverables, scope boundaries, and exit criteria for the accessible PDF library built on PDFBox 3.0.x.
 
+## Current Status (2026-06-02)
+
+1. Milestone 4: Done.
+2. Milestone 5: Partially Done.
+3. Milestone 6: Partially Done.
+
+### Latest Completed Work
+
+1. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
+2. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
+3. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
+
+### Next Focus
+
+1. Continue Milestone 6 hardening with edge-case scenarios and debug diagnostics.
+2. Use the stabilized blueprint as the contract input for Milestone 7 pass-2 renderer work.
+
 ## Planning Principles
 
 1. Every milestone must end in a buildable, testable state.
