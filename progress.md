@@ -11,15 +11,15 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 1
-- Partially Done: 10
+- Done: 2
+- Partially Done: 9
 - Not Done: 5
 
 ## Detailed Milestone Status
 
 | Milestone | Title                                                 | Status         | Notes                                                                                                                                                                                                                                                                                                                |
 | --------- | ----------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1         | Core Architecture and Build Baseline                  | Partially Done | Maven/JUnit baseline and smoke-like checks exist, but full package boundaries and exception hierarchy are not complete.                                                                                                                                                                                              |
+| 1         | Core Architecture and Build Baseline                  | Done           | Package ownership boundaries are explicitly defined, base exception hierarchy is implemented, Maven toolchain gates were added, README now documents architecture and local workflow, and default `mvn test` passes with a direct smoke test (no adapter shortcut required).                                         |
 | 2         | Unified Public API and Intermediate Document Model    | Partially Done | Minimal fluent API exists; declarative model + unified intermediate tree conversion are missing.                                                                                                                                                                                                                     |
 | 3         | Preflight Validation and Compliance Rules             | Partially Done | Heading hierarchy and image alt-text validation are implemented; broader validation pipeline is missing.                                                                                                                                                                                                             |
 | 4         | Metadata, Catalog Setup, and Tagged PDF Skeleton      | Done           | /Lang, title, /DisplayDocTitle, /Tabs /S, XMP pdfUA marker, and structure root are implemented and test-covered.                                                                                                                                                                                                     |
@@ -38,8 +38,8 @@ Reference source: [task.md](task.md)
 
 ## Verification Notes
 
-- Default test run (`mvn test`) currently skips adapter-dependent tests because the default adapter is intentionally unimplemented.
-- Full adapter-backed run succeeds using:
+- Default test run (`mvn test`) succeeds without adapter wiring shortcuts.
+- Adapter-backed run also succeeds explicitly using:
   - `mvn "-Da11y.pdf.adapter=com.likide.spec.PlannedFluentApiPdfLibraryAdapter" test`
 
 ## Next Recommended Milestone

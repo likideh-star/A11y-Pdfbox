@@ -4,15 +4,18 @@ This document converts the PRD into execution milestones with concrete deliverab
 
 ## Current Status (2026-06-02)
 
-1. Milestone 4: Done.
-2. Milestone 5: Partially Done.
-3. Milestone 6: Partially Done.
+1. Milestone 1: Done.
+2. Milestone 4: Done.
+3. Milestone 5: Partially Done.
+4. Milestone 6: Partially Done.
 
 ### Latest Completed Work
 
-1. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
-2. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
-3. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
+1. Milestone 1 baseline completed: package ownership boundaries, exception hierarchy, Maven baseline gates, and README developer workflow are in place.
+2. Default `mvn test` now passes without adapter shortcut assumptions, backed by a direct smoke test.
+3. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
+4. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
+5. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
 
 ### Next Focus
 

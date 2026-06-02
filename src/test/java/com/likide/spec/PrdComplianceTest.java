@@ -1,13 +1,11 @@
 package com.likide.spec;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 class PrdComplianceTest {
 
@@ -16,11 +14,6 @@ class PrdComplianceTest {
     @BeforeAll
     static void setupAdapter() {
         adapter = AdapterLoader.load();
-    }
-
-    private static void requireWiredAdapter() {
-        assumeFalse(adapter instanceof DefaultPdfLibraryAdapter,
-                "Adapter is not wired. Provide -Da11y.pdf.adapter=<fqcn> implementing PdfLibraryAdapter");
     }
 
     @Test
@@ -44,7 +37,6 @@ class PrdComplianceTest {
 
     @Test
     void build_shouldSetCatalogMetadata_tabsAndPdfUaMarker() throws Exception {
-        requireWiredAdapter();
         byte[] pdf = adapter.buildValidMinimalDocument();
 
         try (PDDocument doc = PdfAssertions.load(pdf)) {
@@ -56,19 +48,16 @@ class PrdComplianceTest {
 
     @Test
     void build_shouldRejectSkippedHeadingLevels() {
-        requireWiredAdapter();
         assertThrows(Exception.class, () -> adapter.buildWithSkippedHeadingLevels());
     }
 
     @Test
     void build_shouldRejectImageWithoutAltAndWithoutDecorativeFlag() {
-        requireWiredAdapter();
         assertThrows(Exception.class, () -> adapter.buildWithImageMissingAltText());
     }
 
     @Test
     void listDocument_shouldContainMandatoryListStructureTags() throws Exception {
-        requireWiredAdapter();
         byte[] pdf = adapter.buildListDocument();
         try (PDDocument doc = PdfAssertions.load(pdf)) {
             PdfAssertions.assertStructureContainsTags(doc, "L", "LI", "Lbl", "LBody");
@@ -77,7 +66,6 @@ class PrdComplianceTest {
 
     @Test
     void pageDecorations_shouldBeTaggedAsArtifacts() throws Exception {
-        requireWiredAdapter();
         byte[] pdf = adapter.buildDocumentWithPageArtifacts();
         assertDoesNotThrow(() -> PdfAssertions.assertContainsArtifactMarker(pdf));
     }

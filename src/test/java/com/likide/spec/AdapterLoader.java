@@ -8,7 +8,7 @@ final class AdapterLoader {
     }
 
     static PdfLibraryAdapter load() {
-        String fqcn = System.getProperty(ADAPTER_PROPERTY, DefaultPdfLibraryAdapter.class.getName());
+        String fqcn = System.getProperty(ADAPTER_PROPERTY, PlannedFluentApiPdfLibraryAdapter.class.getName());
         try {
             Class<?> type = Class.forName(fqcn);
             Object adapter = type.getDeclaredConstructor().newInstance();

@@ -22,6 +22,9 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
+import com.likide.a11y.pdf.rendering.RenderingException;
+import com.likide.a11y.pdf.validation.ValidationException;
+
 /**
  * Minimal fluent API skeleton aligned with the planned adapter names.
  *
@@ -72,7 +75,7 @@ public final class A11yPdfDocument {
 
         public Builder columns(int count, float gapPt) {
             if (count < 1) {
-                throw new IllegalArgumentException("columns must be >= 1");
+                throw new ValidationException("columns must be >= 1");
             }
             this.columns = count;
             this.columnGap = gapPt;
@@ -81,7 +84,7 @@ public final class A11yPdfDocument {
 
         public Builder pageSize(float width, float height) {
             if (width <= 0.0f || height <= 0.0f) {
-                throw new IllegalArgumentException("page size must be > 0");
+                throw new ValidationException("page size must be > 0");
             }
             this.pageWidth = width;
             this.pageHeight = height;
@@ -90,7 +93,7 @@ public final class A11yPdfDocument {
 
         public Builder pageMargins(float top, float right, float bottom, float left) {
             if (top < 0.0f || right < 0.0f || bottom < 0.0f || left < 0.0f) {
-                throw new IllegalArgumentException("page margins must be >= 0");
+                throw new ValidationException("page margins must be >= 0");
             }
             this.marginTop = top;
             this.marginRight = right;
@@ -134,10 +137,10 @@ public final class A11yPdfDocument {
 
         public Builder heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier) {
             if (level < 1 || level > 6) {
-                throw new IllegalArgumentException("heading level must be between 1 and 6");
+                throw new ValidationException("heading level must be between 1 and 6");
             }
             if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
-                throw new IllegalStateException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
+                throw new ValidationException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
             }
             lastHeadingLevel = level;
             elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier)));
@@ -146,7 +149,7 @@ public final class A11yPdfDocument {
 
         public Builder image(String pathOrId, String altText, boolean decorative) {
             if (!decorative && (altText == null || altText.isBlank())) {
-                throw new IllegalStateException("Image requires altText unless decorative=true");
+                throw new ValidationException("Image requires altText unless decorative=true");
             }
             elements.add(new Figure(pathOrId, altText, decorative));
             return this;
@@ -180,7 +183,7 @@ public final class A11yPdfDocument {
                 doc.save(out);
                 return out.toByteArray();
             } catch (IOException e) {
-                throw new IllegalStateException("Failed to build PDF bytes", e);
+                throw new RenderingException("Failed to build PDF bytes", e);
             }
         }
 
@@ -215,10 +218,10 @@ public final class A11yPdfDocument {
             float columnWidth = settings.columnWidth(columns, columnGap);
             float usableHeight = settings.usableHeight();
             if (columnWidth <= 0.0f) {
-                throw new IllegalStateException("Page width and margins leave no room for content");
+                throw new ValidationException("Page width and margins leave no room for content");
             }
             if (usableHeight <= 0.0f) {
-                throw new IllegalStateException("Page height and margins leave no room for content");
+                throw new ValidationException("Page height and margins leave no room for content");
             }
 
             List<LayoutBlock> blocks = new ArrayList<>();
@@ -262,11 +265,11 @@ public final class A11yPdfDocument {
                         currentY,
                         columnWidth,
                         measuredBlock.height(),
-                    contentX,
-                    contentY,
-                    measuredBlock.contentWidth(),
-                    measuredBlock.contentHeight(),
-                    measuredBlock.boxModel(),
+                        contentX,
+                        contentY,
+                        measuredBlock.contentWidth(),
+                        measuredBlock.contentHeight(),
+                        measuredBlock.boxModel(),
                         measuredBlock.lineHeight(),
                         measuredBlock.lineHeightMultiplier(),
                         measuredBlock.fontSize(),
@@ -320,7 +323,7 @@ public final class A11yPdfDocument {
 
         private float validateLineHeight(float lineHeightMultiplier) {
             if (lineHeightMultiplier <= 0.0f) {
-                throw new IllegalArgumentException("lineHeight multiplier must be > 0");
+                throw new ValidationException("lineHeight multiplier must be > 0");
             }
             return lineHeightMultiplier;
         }
@@ -328,7 +331,7 @@ public final class A11yPdfDocument {
         private float resolveContentWidth(float availableWidth, BoxModel boxModel) {
             float contentWidth = availableWidth - boxModel.horizontalPadding();
             if (contentWidth <= 0.0f) {
-                throw new IllegalStateException("Element box model leaves no room for content");
+                throw new ValidationException("Element box model leaves no room for content");
             }
             return contentWidth;
         }
@@ -434,7 +437,7 @@ public final class A11yPdfDocument {
                 case 4 -> StandardStructureTypes.H4;
                 case 5 -> StandardStructureTypes.H5;
                 case 6 -> StandardStructureTypes.H6;
-                default -> throw new IllegalArgumentException("Unsupported heading level: " + level);
+                default -> throw new ValidationException("Unsupported heading level: " + level);
             };
         }
 
@@ -583,7 +586,7 @@ public final class A11yPdfDocument {
 
         public BoxModel {
             if (marginTop < 0.0f || paddingTop < 0.0f || paddingRight < 0.0f || paddingBottom < 0.0f || paddingLeft < 0.0f || marginBottom < 0.0f) {
-                throw new IllegalArgumentException("Box model values must be >= 0");
+                throw new ValidationException("Box model values must be >= 0");
             }
         }
 
