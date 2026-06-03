@@ -1,5 +1,9 @@
 package com.likide.a11y.pdf;
 
+import java.io.IOException;
+
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
@@ -67,6 +71,25 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void layoutBlueprint_shouldResolveExplicitBoxModelForHeading() {
+        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(2.0f, 3.0f, 5.0f, 7.0f, 11.0f, 13.0f);
+
+        A11yPdfDocument.LayoutBlueprint blueprint = A11yPdfDocument.builder()
+                .pageSize(300.0f, 300.0f)
+                .pageMargin(20.0f)
+                .heading(2, "heading with explicit box", boxModel)
+                .layoutBlueprint();
+
+        A11yPdfDocument.LayoutBlock heading = blueprint.blocks().get(0);
+
+        assertEquals(boxModel, heading.boxModel());
+        assertEquals(heading.x() + boxModel.paddingLeft(), heading.contentX(), 0.0001f);
+        assertEquals(heading.y() + boxModel.marginTop() + boxModel.paddingTop(), heading.contentY(), 0.0001f);
+        assertEquals(heading.width() - boxModel.paddingLeft() - boxModel.paddingRight(), heading.contentWidth(), 0.0001f);
+        assertEquals(heading.contentHeight() + boxModel.marginTop() + boxModel.paddingTop() + boxModel.paddingBottom() + boxModel.marginBottom(), heading.height(), 0.0001f);
+    }
+
+    @Test
     void layoutBlueprint_shouldFlowAcrossColumnsAndThenPages() {
         A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f);
 
@@ -113,5 +136,23 @@ class A11yPdfDocumentLayoutTest {
 
         assertEquals(1.8f, paragraph.lineHeightMultiplier(), 0.0001f);
         assertEquals(paragraph.fontSize() * 1.8f, paragraph.lineHeight(), 0.0001f);
+    }
+
+    @Test
+    void buildBytes_textOnlyFlow_shouldUseBlueprintPageCountDeterministically() throws IOException {
+        A11yPdfDocument.Builder builder = A11yPdfDocument.builder()
+                .pageSize(220.0f, 120.0f)
+                .pageMargin(20.0f)
+                .heading(1, "A heading")
+                .paragraph("word word word word word word word word word word word word word word word word word word")
+                .paragraph("word word word word word word word word word word word word word word word word word word")
+                .paragraph("word word word word word word word word word word word word word word word word word word");
+
+        A11yPdfDocument.LayoutBlueprint blueprint = builder.layoutBlueprint();
+        byte[] pdf = builder.buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertEquals(blueprint.pageCount(), rendered.getNumberOfPages());
+        }
     }
 }

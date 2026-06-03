@@ -543,6 +543,14 @@ public final class A11yPdfDocument {
         private void renderToDocument(PDDocument doc) throws IOException {
             PDType1Font bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
             PDType1Font regular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+
+            if (isTextOnlyFlow()) {
+                renderTextOnlyFromLayoutBlueprint(doc, bold, regular);
+                buildStructureTree(doc);
+                maybeWriteArtifactMarker(doc, doc.getPage(0));
+                return;
+            }
+
             float contentWidth = pageWidth - marginLeft - marginRight;
 
             PDPage page = addStructuredPage(doc);
@@ -587,6 +595,40 @@ public final class A11yPdfDocument {
 
             buildStructureTree(doc);
             maybeWriteArtifactMarker(doc, doc.getPage(0));
+        }
+
+        private boolean isTextOnlyFlow() {
+            for (Element element : elements) {
+                if (!(element instanceof Heading) && !(element instanceof Paragraph)) {
+                    return false;
+                }
+            }
+            return !elements.isEmpty();
+        }
+
+        private void renderTextOnlyFromLayoutBlueprint(PDDocument doc, PDType1Font bold, PDType1Font regular) throws IOException {
+            LayoutBlueprint blueprint = analyzeLayout();
+            List<PDPage> pages = new ArrayList<>();
+            for (int i = 0; i < blueprint.pageCount(); i++) {
+                pages.add(addStructuredPage(doc));
+            }
+
+            for (LayoutBlock block : blueprint.blocks()) {
+                PDPage page = pages.get(block.pageIndex());
+                PDType1Font font = block.role().startsWith("H") ? bold : regular;
+                float lineY = pageHeight - block.contentY();
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    for (String line : block.lines()) {
+                        cs.beginText();
+                        cs.setFont(font, block.fontSize());
+                        cs.newLineAtOffset(block.contentX(), lineY);
+                        cs.showText(line);
+                        cs.endText();
+                        lineY -= block.lineHeight();
+                    }
+                }
+            }
         }
 
         private PDPage addStructuredPage(PDDocument doc) {

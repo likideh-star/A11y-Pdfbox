@@ -8,7 +8,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 2. Milestone 2: Done.
 3. Milestone 3: Done.
 4. Milestone 4: Done.
-5. Milestone 5: Partially Done.
+5. Milestone 5: Done.
 6. Milestone 6: Partially Done.
 
 ### Latest Completed Work
@@ -26,7 +26,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 ### Next Focus
 
 1. Continue Milestone 6 hardening with edge-case scenarios and debug diagnostics.
-2. Use the stabilized blueprint as the contract input for Milestone 7 pass-2 renderer work.
+2. Continue Milestone 7 pass-2 renderer work with MCID and structure binding enhancements.
 
 ## Planning Principles
 
