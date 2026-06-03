@@ -4,5 +4,6 @@ import java.util.List;
 
 public record IntermediateList(
         List<String> items,
+        IntermediateBoxModel boxModel,
         SemanticMetadata semantic) implements IntermediateNode {
 }

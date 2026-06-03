@@ -42,7 +42,27 @@ public final class DocumentModelConverter {
                         figure.decorative(),
                         new SemanticMetadata("Figure", null, "core")));
             } else if (node instanceof FluentListNode list) {
-                nodes.add(new IntermediateList(List.copyOf(list.items()), new SemanticMetadata("L", null, "core")));
+                nodes.add(new IntermediateList(
+                        List.copyOf(list.items()),
+                        new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
+                        new SemanticMetadata("L", null, "core")));
+            } else if (node instanceof FluentTableNode table) {
+                nodes.add(new IntermediateTable(
+                        List.copyOf(table.headerCells()),
+                        List.copyOf(table.rows()),
+                        new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
+                        new SemanticMetadata("Table", null, "table")));
+            } else if (node instanceof FluentTocNode toc) {
+                nodes.add(new IntermediateToc(
+                        toc.title(),
+                        toc.maxDepth(),
+                        new SemanticMetadata("TOC", null, "toc")));
+            } else if (node instanceof FluentCustomNode custom) {
+                nodes.add(new IntermediateCustomNode(
+                        custom.family(),
+                        custom.type(),
+                        Map.copyOf(custom.attributes()),
+                        new SemanticMetadata("Custom", null, custom.family())));
             }
         }
         return new IntermediateDocument(
@@ -136,7 +156,10 @@ public final class DocumentModelConverter {
                     resolveSemantic("Figure", figure.semantic, "core"));
         }
         if (node instanceof DeclarativeList list) {
-            return new IntermediateList(List.copyOf(list.items), resolveSemantic("L", list.semantic, "core"));
+            return new IntermediateList(
+                    List.copyOf(list.items),
+                    resolveBoxModel(list.boxModel),
+                    resolveSemantic("L", list.semantic, "core"));
         }
         if (node instanceof DeclarativeTable table) {
             if (table.headerCells.isEmpty() && table.rows.isEmpty()) {
@@ -153,6 +176,7 @@ public final class DocumentModelConverter {
             return new IntermediateTable(
                     List.copyOf(table.headerCells),
                     List.copyOf(rows),
+                    resolveBoxModel(table.boxModel),
                     resolveSemantic("Table", table.semantic, "table"));
         }
         if (node instanceof DeclarativeToc toc) {
@@ -197,19 +221,22 @@ public final class DocumentModelConverter {
             throw new ValidationException("lineHeight multiplier must be > 0");
         }
 
+        return new IntermediateTextStyle(lineHeight, resolveBoxModel(boxModel));
+    }
+
+    private static IntermediateBoxModel resolveBoxModel(DeclarativeBoxModel boxModel) {
+
         if (boxModel == null) {
-            return new IntermediateTextStyle(lineHeight, new IntermediateBoxModel(0, 0, 0, 0, 0, 0));
+            return new IntermediateBoxModel(0, 0, 0, 0, 0, 0);
         }
 
-        return new IntermediateTextStyle(
-                lineHeight,
-                new IntermediateBoxModel(
-                        nullAsZero(boxModel.marginTop),
-                        nullAsZero(boxModel.paddingTop),
-                        nullAsZero(boxModel.paddingRight),
-                        nullAsZero(boxModel.paddingBottom),
-                        nullAsZero(boxModel.paddingLeft),
-                        nullAsZero(boxModel.marginBottom)));
+        return new IntermediateBoxModel(
+                nullAsZero(boxModel.marginTop),
+                nullAsZero(boxModel.paddingTop),
+                nullAsZero(boxModel.paddingRight),
+                nullAsZero(boxModel.paddingBottom),
+                nullAsZero(boxModel.paddingLeft),
+                nullAsZero(boxModel.marginBottom));
     }
 
     private static float nullAsZero(Float value) {

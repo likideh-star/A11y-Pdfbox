@@ -11,8 +11,8 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 2
-- Partially Done: 9
+- Done: 3
+- Partially Done: 8
 - Not Done: 5
 
 ## Detailed Milestone Status
@@ -20,7 +20,7 @@ Reference source: [task.md](task.md)
 | Milestone | Title                                                 | Status         | Notes                                                                                                                                                                                                                                                                                                                |
 | --------- | ----------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1         | Core Architecture and Build Baseline                  | Done           | Package ownership boundaries are explicitly defined, base exception hierarchy is implemented, Maven toolchain gates were added, README now documents architecture and local workflow, and default `mvn test` passes with a direct smoke test (no adapter shortcut required).                                         |
-| 2         | Unified Public API and Intermediate Document Model    | Partially Done | Declarative POJOs, shared intermediate model records, and fluent/declarative conversion are implemented for heading, paragraph, list, figure, table, TOC, and custom future-family nodes, including richer semantic metadata (tag, role hint, family); full fluent materialization for table/TOC/custom remains pending. |
+| 2         | Unified Public API and Intermediate Document Model    | Done           | Fluent builder parity is now complete for table/TOC/custom node families, declarative/fluent conversion converges on the same intermediate model for all currently supported nodes, and equivalence/materialization tests pass in the default `mvn test` run.                                                        |
 | 3         | Preflight Validation and Compliance Rules             | Partially Done | Heading hierarchy and image alt-text validation are implemented; broader validation pipeline is missing.                                                                                                                                                                                                             |
 | 4         | Metadata, Catalog Setup, and Tagged PDF Skeleton      | Done           | /Lang, title, /DisplayDocTitle, /Tabs /S, XMP pdfUA marker, and structure root are implemented and test-covered.                                                                                                                                                                                                     |
 | 5         | Pass 1 Layout Engine for Text Flow                    | Partially Done | First-pass blueprint now includes explicit heading/paragraph box-model fields (margin-top, paddings, margin-bottom), per-element lineHeight multipliers, content-box resolution, deterministic wrapping, keep-with-next handling, and verified pagination transitions; pass-2 rendering integration remains pending. |
@@ -44,4 +44,4 @@ Reference source: [task.md](task.md)
 
 ## Next Recommended Milestone
 
-- Continue Milestone 2 and 6 in parallel: add fluent builder materialization for table/TOC/custom nodes while hardening multi-column edge cases before pass-2 renderer wiring.
+- Continue Milestone 6 hardening, then start Milestone 7 pass-2 renderer and MCID wiring.

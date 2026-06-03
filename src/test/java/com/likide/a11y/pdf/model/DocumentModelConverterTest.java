@@ -3,7 +3,6 @@ package com.likide.a11y.pdf.model;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import org.junit.jupiter.api.Test;
 
 import com.likide.a11y.pdf.A11yPdfDocument;
@@ -58,6 +57,18 @@ class DocumentModelConverterTest {
                 .item("one")
                 .item("two")
                 .endList()
+                .table()
+                .headerCell("Name")
+                .headerCell("Value")
+                .row()
+                .cell("A")
+                .cell("1")
+                .endRow()
+                .endTable()
+                .tableOfContents("Overview", 3)
+                .customNode("future.analytics", "KpiWidget")
+                .attribute("metric", "views")
+                .endCustomNode()
                 .toIntermediateModel();
 
         DeclarativeDocument declarative = new DeclarativeDocument();
@@ -111,6 +122,26 @@ class DocumentModelConverterTest {
         list.items.add("one");
         list.items.add("two");
         declarative.nodes.add(list);
+
+        DeclarativeTable table = new DeclarativeTable();
+        table.headerCells.add("Name");
+        table.headerCells.add("Value");
+        DeclarativeTableRow row = new DeclarativeTableRow();
+        row.cells.add("A");
+        row.cells.add("1");
+        table.rows.add(row);
+        declarative.nodes.add(table);
+
+        DeclarativeToc toc = new DeclarativeToc();
+        toc.title = "Overview";
+        toc.maxDepth = 3;
+        declarative.nodes.add(toc);
+
+        DeclarativeCustomNode custom = new DeclarativeCustomNode();
+        custom.family = "future.analytics";
+        custom.type = "KpiWidget";
+        custom.attributes.put("metric", "views");
+        declarative.nodes.add(custom);
 
         IntermediateDocument converted = A11yPdfDocument.fromDeclarative(declarative).toIntermediateModel();
 
@@ -168,13 +199,31 @@ class DocumentModelConverterTest {
     }
 
     @Test
-    void fromDeclarativeBuilder_shouldRejectNodesNotYetMaterializedByFluentBuilder() {
+    void fromDeclarativeBuilder_shouldMaterializeTableTocAndCustomNodes() {
         DeclarativeDocument input = new DeclarativeDocument();
+
         DeclarativeTable table = new DeclarativeTable();
-        table.headerCells.add("Only");
+        table.headerCells.add("Name");
+        DeclarativeTableRow row = new DeclarativeTableRow();
+        row.cells.add("A");
+        table.rows.add(row);
         input.nodes.add(table);
 
-        ValidationException ex = assertThrows(ValidationException.class, () -> A11yPdfDocument.fromDeclarative(input));
-        assertTrue(ex.getMessage().contains("cannot materialize"));
+        DeclarativeToc toc = new DeclarativeToc();
+        toc.title = "Overview";
+        toc.maxDepth = 2;
+        input.nodes.add(toc);
+
+        DeclarativeCustomNode custom = new DeclarativeCustomNode();
+        custom.family = "future.analytics";
+        custom.type = "KpiWidget";
+        custom.attributes.put("metric", "views");
+        input.nodes.add(custom);
+
+        IntermediateDocument converted = A11yPdfDocument.fromDeclarative(input).toIntermediateModel();
+        assertEquals(3, converted.nodes().size());
+        assertTrue(converted.nodes().get(0) instanceof IntermediateTable);
+        assertTrue(converted.nodes().get(1) instanceof IntermediateToc);
+        assertTrue(converted.nodes().get(2) instanceof IntermediateCustomNode);
     }
 }

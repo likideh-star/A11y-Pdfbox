@@ -5,7 +5,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
@@ -20,24 +22,33 @@ import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DocumentModelConverter;
+import com.likide.a11y.pdf.model.FluentCustomNode;
 import com.likide.a11y.pdf.model.FluentDocumentSnapshot;
 import com.likide.a11y.pdf.model.FluentFigureNode;
 import com.likide.a11y.pdf.model.FluentHeadingNode;
 import com.likide.a11y.pdf.model.FluentListNode;
 import com.likide.a11y.pdf.model.FluentNode;
 import com.likide.a11y.pdf.model.FluentParagraphNode;
+import com.likide.a11y.pdf.model.FluentTableNode;
+import com.likide.a11y.pdf.model.FluentTocNode;
 import com.likide.a11y.pdf.model.IntermediateBoxModel;
+import com.likide.a11y.pdf.model.IntermediateCustomNode;
 import com.likide.a11y.pdf.model.IntermediateDocument;
 import com.likide.a11y.pdf.model.IntermediateFigure;
 import com.likide.a11y.pdf.model.IntermediateHeading;
 import com.likide.a11y.pdf.model.IntermediateList;
 import com.likide.a11y.pdf.model.IntermediateNode;
 import com.likide.a11y.pdf.model.IntermediateParagraph;
+import com.likide.a11y.pdf.model.IntermediateTable;
+import com.likide.a11y.pdf.model.IntermediateTableRow;
 import com.likide.a11y.pdf.model.IntermediateTextStyle;
+import com.likide.a11y.pdf.model.IntermediateToc;
 import com.likide.a11y.pdf.rendering.RenderingException;
 import com.likide.a11y.pdf.validation.ValidationException;
 
@@ -86,11 +97,32 @@ public final class A11yPdfDocument {
             } else if (node instanceof IntermediateFigure figure) {
                 builder.image(figure.pathOrId(), figure.altText(), figure.decorative());
             } else if (node instanceof IntermediateList list) {
-                ListBuilder listBuilder = builder.unorderedList();
+                ListBuilder listBuilder = builder.unorderedList(fromIntermediateBoxModel(list.boxModel()));
                 for (String item : list.items()) {
                     listBuilder.item(item);
                 }
                 listBuilder.endList();
+            } else if (node instanceof IntermediateTable table) {
+                TableBuilder tableBuilder = builder.table(fromIntermediateBoxModel(table.boxModel()));
+                for (String headerCell : table.headerCells()) {
+                    tableBuilder.headerCell(headerCell);
+                }
+                for (IntermediateTableRow row : table.rows()) {
+                    TableRowBuilder rowBuilder = tableBuilder.row();
+                    for (String cell : row.cells()) {
+                        rowBuilder.cell(cell);
+                    }
+                    rowBuilder.endRow();
+                }
+                tableBuilder.endTable();
+            } else if (node instanceof IntermediateToc toc) {
+                builder.tableOfContents(toc.title(), toc.maxDepth());
+            } else if (node instanceof IntermediateCustomNode custom) {
+                CustomNodeBuilder customNodeBuilder = builder.customNode(custom.family(), custom.type());
+                for (Map.Entry<String, String> entry : custom.attributes().entrySet()) {
+                    customNodeBuilder.attribute(entry.getKey(), entry.getValue());
+                }
+                customNodeBuilder.endCustomNode();
             } else {
                 throw new ValidationException(
                         "fromDeclarative(...) cannot materialize intermediate node yet: "
@@ -226,9 +258,47 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList() {
-            ListBlock block = new ListBlock();
+            return unorderedList(BoxModel.none());
+        }
+
+        public ListBuilder unorderedList(BoxModel boxModel) {
+            ListBlock block = new ListBlock(boxModel);
             elements.add(block);
             return new ListBuilder(this, block);
+        }
+
+        public TableBuilder table() {
+            return table(BoxModel.none());
+        }
+
+        public TableBuilder table(BoxModel boxModel) {
+            TableBlock block = new TableBlock(boxModel);
+            elements.add(block);
+            return new TableBuilder(this, block);
+        }
+
+        public Builder tableOfContents(String title) {
+            return tableOfContents(title, 6);
+        }
+
+        public Builder tableOfContents(String title, int maxDepth) {
+            if (maxDepth < 1) {
+                throw new ValidationException("TOC maxDepth must be >= 1");
+            }
+            elements.add(new TocBlock(title == null ? "" : title, maxDepth));
+            return this;
+        }
+
+        public CustomNodeBuilder customNode(String family, String type) {
+            if (family == null || family.isBlank()) {
+                throw new ValidationException("Custom node family must not be blank");
+            }
+            if (type == null || type.isBlank()) {
+                throw new ValidationException("Custom node type must not be blank");
+            }
+            CustomBlock block = new CustomBlock(family, type);
+            elements.add(block);
+            return new CustomNodeBuilder(this, block);
         }
 
         public Builder artifactHeaderFooter(String pageTextPattern) {
@@ -276,6 +346,16 @@ public final class A11yPdfDocument {
                     nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
                 } else if (element instanceof ListBlock listBlock) {
                     nodes.add(new FluentListNode(List.copyOf(listBlock.items)));
+                } else if (element instanceof TableBlock tableBlock) {
+                    List<IntermediateTableRow> rows = new ArrayList<>();
+                    for (List<String> row : tableBlock.rows) {
+                        rows.add(new IntermediateTableRow(List.copyOf(row)));
+                    }
+                    nodes.add(new FluentTableNode(List.copyOf(tableBlock.headerCells), List.copyOf(rows)));
+                } else if (element instanceof TocBlock tocBlock) {
+                    nodes.add(new FluentTocNode(tocBlock.title, tocBlock.maxDepth));
+                } else if (element instanceof CustomBlock customBlock) {
+                    nodes.add(new FluentCustomNode(customBlock.family, customBlock.type, Map.copyOf(customBlock.attributes)));
                 }
             }
 
@@ -297,18 +377,381 @@ public final class A11yPdfDocument {
 
         public byte[] buildBytes() {
             try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                PDPage page = new PDPage(new PDRectangle(pageWidth, pageHeight));
-                page.getCOSObject().setItem(COSName.getPDFName("Tabs"), COSName.S);
-                doc.addPage(page);
-
                 setupCatalogMetadata(doc);
-                buildStructureTree(doc);
-                maybeWriteArtifactMarker(doc, page);
-
+                renderToDocument(doc);
                 doc.save(out);
                 return out.toByteArray();
             } catch (IOException e) {
                 throw new RenderingException("Failed to build PDF bytes", e);
+            }
+        }
+
+        private void renderToDocument(PDDocument doc) throws IOException {
+            PDType1Font bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
+            PDType1Font regular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            float contentWidth = pageWidth - marginLeft - marginRight;
+
+            PDPage page = addStructuredPage(doc);
+            float y = pageHeight - marginTop;
+
+            for (Element element : elements) {
+                if (element instanceof ListBlock listBlock) {
+                    RenderCursor cursor = renderListAcrossPages(
+                            doc,
+                            page,
+                            y,
+                            marginLeft,
+                            listBlock,
+                            regular);
+                    page = cursor.page();
+                    y = cursor.y();
+                    continue;
+                }
+
+                if (element instanceof TableBlock tableBlock) {
+                    RenderCursor cursor = renderTableAcrossPages(
+                            doc,
+                            page,
+                            y,
+                            marginLeft,
+                            contentWidth,
+                            tableBlock,
+                            bold,
+                            regular);
+                    page = cursor.page();
+                    y = cursor.y();
+                    continue;
+                }
+
+                float needed = estimateHeight(element, contentWidth);
+                if (y - needed < marginBottom) {
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                }
+                y = renderElement(doc, page, bold, regular, element, marginLeft, y, contentWidth);
+            }
+
+            buildStructureTree(doc);
+            maybeWriteArtifactMarker(doc, doc.getPage(0));
+        }
+
+        private PDPage addStructuredPage(PDDocument doc) {
+            PDPage page = new PDPage(new PDRectangle(pageWidth, pageHeight));
+            page.getCOSObject().setItem(COSName.getPDFName("Tabs"), COSName.S);
+            doc.addPage(page);
+            return page;
+        }
+
+        private float estimateHeight(Element element, float contentWidth) {
+            if (element instanceof Heading heading) {
+                float fontSize = 22.0f - (heading.level - 1) * 2.0f;
+                float leading = fontSize * heading.lineHeightMultiplier;
+                return wrapText(heading.text, contentWidth, fontSize * 0.55f).size() * leading
+                        + heading.boxModel.marginTop() + heading.boxModel.marginBottom() + 8.0f;
+            }
+            if (element instanceof Paragraph paragraph) {
+                float fontSize = 12.0f;
+                float leading = fontSize * paragraph.lineHeightMultiplier;
+                return wrapText(paragraph.text, contentWidth, fontSize * 0.5f).size() * leading
+                        + paragraph.boxModel.marginTop() + paragraph.boxModel.marginBottom();
+            }
+            if (element instanceof ListBlock listBlock) {
+                return listBlock.items.size() * 14.4f
+                        + listBlock.boxModel.marginTop()
+                        + listBlock.boxModel.paddingTop()
+                        + listBlock.boxModel.paddingBottom()
+                        + listBlock.boxModel.marginBottom()
+                        + 8.0f;
+            }
+            if (element instanceof TableBlock tableBlock) {
+                return (tableBlock.rows.size() + 1) * 18.0f
+                        + tableBlock.boxModel.marginTop()
+                        + tableBlock.boxModel.paddingTop()
+                        + tableBlock.boxModel.paddingBottom()
+                        + tableBlock.boxModel.marginBottom()
+                        + 8.0f;
+            }
+            return 24.0f;
+        }
+
+        private float renderElement(PDDocument doc, PDPage page, PDType1Font bold, PDType1Font regular,
+                Element element, float x, float y, float contentWidth) throws IOException {
+            try (PDPageContentStream cs = new PDPageContentStream(
+                    doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+
+                if (element instanceof Heading heading) {
+                    float fontSize = 22.0f - (heading.level - 1) * 2.0f;
+                    float leading = fontSize * heading.lineHeightMultiplier;
+                    y -= heading.boxModel.marginTop() + 6.0f;
+                    for (String line : wrapText(heading.text, contentWidth, fontSize * 0.55f)) {
+                        cs.beginText();
+                        cs.setFont(bold, fontSize);
+                        cs.newLineAtOffset(x, y);
+                        cs.showText(line);
+                        cs.endText();
+                        y -= leading;
+                    }
+                    y -= heading.boxModel.marginBottom();
+
+                } else if (element instanceof Paragraph paragraph) {
+                    float fontSize = 12.0f;
+                    float leading = fontSize * paragraph.lineHeightMultiplier;
+                    y -= paragraph.boxModel.marginTop();
+                    for (String line : wrapText(paragraph.text, contentWidth, fontSize * 0.5f)) {
+                        cs.beginText();
+                        cs.setFont(regular, fontSize);
+                        cs.newLineAtOffset(x, y);
+                        cs.showText(line);
+                        cs.endText();
+                        y -= leading;
+                    }
+                    y -= paragraph.boxModel.marginBottom();
+
+                } else if (element instanceof ListBlock listBlock) {
+                    float leading = 14.4f;
+                    for (String item : listBlock.items) {
+                        cs.beginText();
+                        cs.setFont(regular, 12.0f);
+                        cs.newLineAtOffset(x + 12.0f, y);
+                        cs.showText("- " + item);
+                        cs.endText();
+                        y -= leading;
+                    }
+                    y -= 8.0f;
+
+                } else if (element instanceof TableBlock tableBlock) {
+                    float rowHeight = 18.0f;
+                    float headerFontSize = 10.0f;
+                    float bodyFontSize = 10.0f;
+                    int colCount = tableBlock.headerCells.isEmpty()
+                            ? (tableBlock.rows.isEmpty() ? 1 : tableBlock.rows.get(0).size())
+                            : tableBlock.headerCells.size();
+                    float colWidth = colCount > 0 ? contentWidth / colCount : contentWidth;
+                    int totalRows = tableBlock.rows.size() + 1;
+                    float tableTop = y + 4.0f;
+                    float tableHeight = totalRows * rowHeight;
+                    float tableBottom = tableTop - tableHeight;
+
+                    // Draw outer border and grid lines.
+                    cs.addRect(x, tableBottom, contentWidth, tableHeight);
+                    for (int i = 1; i < colCount; i++) {
+                        float lineX = x + i * colWidth;
+                        cs.moveTo(lineX, tableTop);
+                        cs.lineTo(lineX, tableBottom);
+                    }
+                    for (int i = 1; i < totalRows; i++) {
+                        float lineY = tableTop - i * rowHeight;
+                        cs.moveTo(x, lineY);
+                        cs.lineTo(x + contentWidth, lineY);
+                    }
+                    cs.stroke();
+
+                    float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
+                    for (int i = 0; i < tableBlock.headerCells.size(); i++) {
+                        cs.beginText();
+                        cs.setFont(bold, headerFontSize);
+                        cs.newLineAtOffset(x + i * colWidth + 4.0f, tableTop - headerBaselineOffset);
+                        cs.showText(tableBlock.headerCells.get(i));
+                        cs.endText();
+                    }
+                    float bodyBaselineOffset = (rowHeight - bodyFontSize) / 2.0f + (bodyFontSize * 0.8f);
+                    int rowIndex = 1;
+                    for (List<String> row : tableBlock.rows) {
+                        float rowBaseline = tableTop - (rowIndex * rowHeight) - bodyBaselineOffset;
+                        for (int i = 0; i < row.size(); i++) {
+                            cs.beginText();
+                            cs.setFont(regular, bodyFontSize);
+                            cs.newLineAtOffset(x + i * colWidth + 4.0f, rowBaseline);
+                            cs.showText(row.get(i));
+                            cs.endText();
+                        }
+                        rowIndex++;
+                    }
+                    y = tableBottom - 8.0f;
+
+                } else if (element instanceof TocBlock tocBlock) {
+                    String label = tocBlock.title == null || tocBlock.title.isBlank()
+                            ? "Table of Contents" : tocBlock.title;
+                    cs.beginText();
+                    cs.setFont(bold, 12.0f);
+                    cs.newLineAtOffset(x, y);
+                    cs.showText(label);
+                    cs.endText();
+                    y -= 20.0f;
+
+                } else if (element instanceof Figure figure) {
+                    String label = figure.decorative ? "[Figure - decorative]"
+                            : "[Figure: " + (figure.altText != null && !figure.altText.isBlank()
+                                    ? figure.altText : figure.pathOrId) + "]";
+                    cs.beginText();
+                    cs.setFont(regular, 11.0f);
+                    cs.newLineAtOffset(x, y);
+                    cs.showText(label);
+                    cs.endText();
+                    y -= 20.0f;
+
+                } else if (element instanceof CustomBlock customBlock) {
+                    cs.beginText();
+                    cs.setFont(regular, 11.0f);
+                    cs.newLineAtOffset(x, y);
+                    cs.showText("[" + customBlock.family + " / " + customBlock.type + "]");
+                    cs.endText();
+                    y -= 20.0f;
+                }
+            }
+            return y;
+        }
+
+        private RenderCursor renderListAcrossPages(
+                PDDocument doc,
+                PDPage startPage,
+                float startY,
+                float x,
+                ListBlock listBlock,
+                PDType1Font regular) throws IOException {
+            float fontSize = 12.0f;
+            float leading = 14.4f;
+            BoxModel boxModel = listBlock.boxModel;
+            float contentX = x + boxModel.paddingLeft();
+
+            if (listBlock.items.isEmpty()) {
+                return new RenderCursor(
+                        startPage,
+                        startY - boxModel.marginTop() - boxModel.paddingTop() - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
+            }
+
+            PDPage page = startPage;
+            float y = startY - boxModel.marginTop() - boxModel.paddingTop();
+            int itemStart = 0;
+
+            while (true) {
+                int maxItemsThisPage = (int) Math.floor((y - marginBottom) / leading);
+                if (maxItemsThisPage <= 0) {
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                    continue;
+                }
+
+                int remaining = listBlock.items.size() - itemStart;
+                int itemsThisPage = Math.min(maxItemsThisPage, remaining);
+                float lineY = y;
+
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    for (int i = 0; i < itemsThisPage; i++) {
+                        cs.beginText();
+                        cs.setFont(regular, fontSize);
+                        cs.newLineAtOffset(contentX + 12.0f, lineY);
+                        cs.showText("- " + listBlock.items.get(itemStart + i));
+                        cs.endText();
+                        lineY -= leading;
+                    }
+                }
+
+                itemStart += itemsThisPage;
+                if (itemStart >= listBlock.items.size()) {
+                    return new RenderCursor(page, lineY - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
+                }
+
+                page = addStructuredPage(doc);
+                y = pageHeight - marginTop;
+            }
+        }
+
+        private RenderCursor renderTableAcrossPages(
+                PDDocument doc,
+                PDPage startPage,
+                float startY,
+                float x,
+                float contentWidth,
+                TableBlock tableBlock,
+                PDType1Font bold,
+                PDType1Font regular) throws IOException {
+            float rowHeight = 18.0f;
+            float headerFontSize = 10.0f;
+            float bodyFontSize = 10.0f;
+            BoxModel boxModel = tableBlock.boxModel;
+            float tableX = x + boxModel.paddingLeft();
+            float tableWidth = contentWidth - boxModel.horizontalPadding();
+            if (tableWidth <= 0.0f) {
+                throw new ValidationException("Table box model leaves no room for content");
+            }
+
+            int colCount = tableBlock.headerCells.isEmpty()
+                    ? (tableBlock.rows.isEmpty() ? 1 : tableBlock.rows.get(0).size())
+                    : tableBlock.headerCells.size();
+            float colWidth = colCount > 0 ? tableWidth / colCount : tableWidth;
+
+            PDPage page = startPage;
+            float y = startY - boxModel.marginTop() - boxModel.paddingTop();
+            int rowStart = 0;
+
+            while (true) {
+                int maxBodyRowsThisPage = (int) Math.floor((y + 4.0f - marginBottom) / rowHeight) - 1;
+                if (maxBodyRowsThisPage < 0) {
+                    maxBodyRowsThisPage = 0;
+                }
+
+                if (maxBodyRowsThisPage == 0 && !tableBlock.rows.isEmpty()) {
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                    continue;
+                }
+
+                int remaining = tableBlock.rows.size() - rowStart;
+                int rowsThisPage = Math.min(maxBodyRowsThisPage, remaining);
+                int totalRowsThisPage = rowsThisPage + 1; // header + body slice
+
+                float tableTop = y + 4.0f;
+                float tableHeight = totalRowsThisPage * rowHeight;
+                float tableBottom = tableTop - tableHeight;
+
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    cs.addRect(tableX, tableBottom, tableWidth, tableHeight);
+                    for (int i = 1; i < colCount; i++) {
+                        float lineX = tableX + i * colWidth;
+                        cs.moveTo(lineX, tableTop);
+                        cs.lineTo(lineX, tableBottom);
+                    }
+                    for (int i = 1; i < totalRowsThisPage; i++) {
+                        float lineY = tableTop - i * rowHeight;
+                        cs.moveTo(tableX, lineY);
+                        cs.lineTo(tableX + tableWidth, lineY);
+                    }
+                    cs.stroke();
+
+                    float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
+                    for (int i = 0; i < tableBlock.headerCells.size() && i < colCount; i++) {
+                        cs.beginText();
+                        cs.setFont(bold, headerFontSize);
+                        cs.newLineAtOffset(tableX + i * colWidth + 4.0f, tableTop - headerBaselineOffset);
+                        cs.showText(tableBlock.headerCells.get(i));
+                        cs.endText();
+                    }
+
+                    float bodyBaselineOffset = (rowHeight - bodyFontSize) / 2.0f + (bodyFontSize * 0.8f);
+                    for (int r = 0; r < rowsThisPage; r++) {
+                        List<String> row = tableBlock.rows.get(rowStart + r);
+                        float rowBaseline = tableTop - ((r + 1) * rowHeight) - bodyBaselineOffset;
+                        int cells = Math.min(row.size(), colCount);
+                        for (int c = 0; c < cells; c++) {
+                            cs.beginText();
+                            cs.setFont(regular, bodyFontSize);
+                            cs.newLineAtOffset(tableX + c * colWidth + 4.0f, rowBaseline);
+                            cs.showText(row.get(c));
+                            cs.endText();
+                        }
+                    }
+                }
+
+                rowStart += rowsThisPage;
+                if (rowStart >= tableBlock.rows.size()) {
+                    return new RenderCursor(page, tableBottom - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
+                }
+
+                page = addStructuredPage(doc);
+                y = pageHeight - marginTop;
             }
         }
 
@@ -535,6 +978,12 @@ public final class A11yPdfDocument {
                         li.appendKid(new PDStructureElement("Lbl", li));
                         li.appendKid(new PDStructureElement("LBody", li));
                     }
+                } else if (element instanceof TableBlock) {
+                    root.appendKid(new PDStructureElement(StandardStructureTypes.TABLE, root));
+                } else if (element instanceof TocBlock) {
+                    root.appendKid(new PDStructureElement(StandardStructureTypes.TOC, root));
+                } else if (element instanceof CustomBlock) {
+                    root.appendKid(new PDStructureElement("Sect", root));
                 }
             }
         }
@@ -611,7 +1060,73 @@ public final class A11yPdfDocument {
         }
     }
 
-    private sealed interface Element permits Heading, Paragraph, Figure, ListBlock {
+    public static final class TableBuilder {
+        private final Builder parent;
+        private final TableBlock block;
+
+        private TableBuilder(Builder parent, TableBlock block) {
+            this.parent = parent;
+            this.block = block;
+        }
+
+        public TableBuilder headerCell(String text) {
+            block.headerCells.add(text == null ? "" : text);
+            return this;
+        }
+
+        public TableRowBuilder row() {
+            List<String> row = new ArrayList<>();
+            block.rows.add(row);
+            return new TableRowBuilder(this, row);
+        }
+
+        public Builder endTable() {
+            return parent;
+        }
+    }
+
+    public static final class TableRowBuilder {
+        private final TableBuilder parent;
+        private final List<String> row;
+
+        private TableRowBuilder(TableBuilder parent, List<String> row) {
+            this.parent = parent;
+            this.row = row;
+        }
+
+        public TableRowBuilder cell(String text) {
+            row.add(text == null ? "" : text);
+            return this;
+        }
+
+        public TableBuilder endRow() {
+            return parent;
+        }
+    }
+
+    public static final class CustomNodeBuilder {
+        private final Builder parent;
+        private final CustomBlock block;
+
+        private CustomNodeBuilder(Builder parent, CustomBlock block) {
+            this.parent = parent;
+            this.block = block;
+        }
+
+        public CustomNodeBuilder attribute(String key, String value) {
+            if (key == null || key.isBlank()) {
+                throw new ValidationException("Custom attribute key must not be blank");
+            }
+            block.attributes.put(key, value == null ? "" : value);
+            return this;
+        }
+
+        public Builder endCustomNode() {
+            return parent;
+        }
+    }
+
+    private sealed interface Element permits Heading, Paragraph, Figure, ListBlock, TableBlock, TocBlock, CustomBlock {
     }
 
     private static final class Heading implements Element {
@@ -656,7 +1171,43 @@ public final class A11yPdfDocument {
     }
 
     private static final class ListBlock implements Element {
+        private final BoxModel boxModel;
         private final List<String> items = new ArrayList<>();
+
+        private ListBlock(BoxModel boxModel) {
+            this.boxModel = boxModel;
+        }
+    }
+
+    private static final class TableBlock implements Element {
+        private final BoxModel boxModel;
+        private final List<String> headerCells = new ArrayList<>();
+        private final List<List<String>> rows = new ArrayList<>();
+
+        private TableBlock(BoxModel boxModel) {
+            this.boxModel = boxModel;
+        }
+    }
+
+    private static final class TocBlock implements Element {
+        private final String title;
+        private final int maxDepth;
+
+        private TocBlock(String title, int maxDepth) {
+            this.title = title;
+            this.maxDepth = maxDepth;
+        }
+    }
+
+    private static final class CustomBlock implements Element {
+        private final String family;
+        private final String type;
+        private final Map<String, String> attributes = new LinkedHashMap<>();
+
+        private CustomBlock(String family, String type) {
+            this.family = family;
+            this.type = type;
+        }
     }
 
     private record MeasuredBlock(
@@ -751,5 +1302,8 @@ public final class A11yPdfDocument {
         float columnX(int columnIndex, int columnCount, float columnGap) {
             return leftMargin + (columnIndex * columnWidth(columnCount, columnGap)) + (columnIndex * columnGap);
         }
+    }
+
+    private record RenderCursor(PDPage page, float y) {
     }
 }
