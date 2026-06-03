@@ -6,9 +6,10 @@ This document converts the PRD into execution milestones with concrete deliverab
 
 1. Milestone 1: Done.
 2. Milestone 2: Done.
-3. Milestone 4: Done.
-4. Milestone 5: Partially Done.
-5. Milestone 6: Partially Done.
+3. Milestone 3: Done.
+4. Milestone 4: Done.
+5. Milestone 5: Partially Done.
+6. Milestone 6: Partially Done.
 
 ### Latest Completed Work
 

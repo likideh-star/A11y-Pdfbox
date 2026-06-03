@@ -156,6 +156,7 @@ public final class A11yPdfDocument {
         private float marginBottom = DEFAULT_PAGE_MARGIN;
         private float marginLeft = DEFAULT_PAGE_MARGIN;
         private String artifactHeaderFooterPattern;
+        private final List<String> preflightWarnings = new ArrayList<>();
 
         private final List<Element> elements = new ArrayList<>();
         private int lastHeadingLevel = 0;
@@ -306,6 +307,10 @@ public final class A11yPdfDocument {
             return this;
         }
 
+        public List<String> preflightWarnings() {
+            return List.copyOf(preflightWarnings);
+        }
+
         public LayoutBlueprint layoutBlueprint() {
             return analyzeLayout();
         }
@@ -377,6 +382,7 @@ public final class A11yPdfDocument {
 
         public byte[] buildBytes() {
             try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                runPreflightValidation();
                 setupCatalogMetadata(doc);
                 renderToDocument(doc);
                 doc.save(out);
@@ -384,6 +390,154 @@ public final class A11yPdfDocument {
             } catch (IOException e) {
                 throw new RenderingException("Failed to build PDF bytes", e);
             }
+        }
+
+        private void runPreflightValidation() {
+            List<ValidationIssue> fatals = new ArrayList<>();
+            List<ValidationIssue> warnings = new ArrayList<>();
+
+            validateDocumentMetadata(fatals);
+            validateNodeComposition(fatals, warnings);
+
+            preflightWarnings.clear();
+            for (ValidationIssue warning : warnings) {
+                preflightWarnings.add(warning.format());
+            }
+
+            if (!fatals.isEmpty()) {
+                StringBuilder message = new StringBuilder("Preflight validation failed:\n");
+                for (ValidationIssue issue : fatals) {
+                    message.append(" - ").append(issue.format()).append('\n');
+                }
+                throw new ValidationException(message.toString().trim());
+            }
+        }
+
+        private void validateDocumentMetadata(List<ValidationIssue> fatals) {
+            if (lang == null || lang.isBlank()) {
+                fatals.add(ValidationIssue.fatal("DOC_LANG_REQUIRED", null, null,
+                        "Document language (lang) must not be blank"));
+            }
+            if (title == null || title.isBlank()) {
+                fatals.add(ValidationIssue.fatal("DOC_TITLE_REQUIRED", null, null,
+                        "Document title must not be blank"));
+            }
+        }
+
+        private void validateNodeComposition(List<ValidationIssue> fatals, List<ValidationIssue> warnings) {
+            int lastHeadingLevel = 0;
+            int shallowestHeadingLevel = Integer.MAX_VALUE;
+            List<TocReferenceCheck> tocChecks = new ArrayList<>();
+
+            for (int i = 0; i < elements.size(); i++) {
+                Element element = elements.get(i);
+                String nodeType = element.getClass().getSimpleName();
+
+                if (element instanceof Heading heading) {
+                    if (lastHeadingLevel > 0 && heading.level > lastHeadingLevel + 1) {
+                        fatals.add(ValidationIssue.fatal("HEADING_HIERARCHY_SKIP", i, nodeType,
+                                "Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + heading.level));
+                    }
+                    lastHeadingLevel = heading.level;
+                    shallowestHeadingLevel = Math.min(shallowestHeadingLevel, heading.level);
+                    validateUnicodeCoverage(i, nodeType, heading.text, fatals);
+                } else if (element instanceof Paragraph paragraph) {
+                    validateUnicodeCoverage(i, nodeType, paragraph.text, fatals);
+                } else if (element instanceof Figure figure) {
+                    if (!figure.decorative && (figure.altText == null || figure.altText.isBlank())) {
+                        fatals.add(ValidationIssue.fatal("IMAGE_ALTTEXT_REQUIRED", i, nodeType,
+                                "Non-decorative image must provide altText"));
+                    }
+                    validateUnicodeCoverage(i, nodeType, figure.altText, fatals);
+                } else if (element instanceof ListBlock listBlock) {
+                    if (listBlock.items.isEmpty()) {
+                        fatals.add(ValidationIssue.fatal("LIST_EMPTY", i, nodeType,
+                                "List must contain at least one item"));
+                    }
+                    for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
+                        String item = listBlock.items.get(itemIndex);
+                        if (item == null || item.isBlank()) {
+                            fatals.add(ValidationIssue.fatal("LIST_ITEM_BLANK", i, nodeType,
+                                    "List item at index " + itemIndex + " must not be blank"));
+                        }
+                        validateUnicodeCoverage(i, nodeType, item, fatals);
+                    }
+                } else if (element instanceof TableBlock tableBlock) {
+                    if (tableBlock.headerCells.isEmpty() && tableBlock.rows.isEmpty()) {
+                        fatals.add(ValidationIssue.fatal("TABLE_EMPTY", i, nodeType,
+                                "Table must contain header cells or body rows"));
+                    }
+                    if (tableBlock.headerCells.isEmpty() && !tableBlock.rows.isEmpty()) {
+                        warnings.add(ValidationIssue.warning("TABLE_HEADER_MISSING", i, nodeType,
+                                "Table has body rows without header cells"));
+                    }
+                    int expectedColumns = resolveExpectedColumns(tableBlock);
+                    if (expectedColumns <= 0) {
+                        fatals.add(ValidationIssue.fatal("TABLE_NO_COLUMNS", i, nodeType,
+                                "Table must resolve to at least one column"));
+                    }
+                    for (int rowIndex = 0; rowIndex < tableBlock.rows.size(); rowIndex++) {
+                        List<String> row = tableBlock.rows.get(rowIndex);
+                        if (row.size() != expectedColumns) {
+                            fatals.add(ValidationIssue.fatal("TABLE_ROW_COLUMN_MISMATCH", i, nodeType,
+                                    "Row " + rowIndex + " has " + row.size()
+                                            + " cells but expected " + expectedColumns));
+                        }
+                        for (String cell : row) {
+                            validateUnicodeCoverage(i, nodeType, cell, fatals);
+                        }
+                    }
+                    for (String header : tableBlock.headerCells) {
+                        validateUnicodeCoverage(i, nodeType, header, fatals);
+                    }
+                } else if (element instanceof TocBlock tocBlock) {
+                    tocChecks.add(new TocReferenceCheck(i, Math.max(1, tocBlock.maxDepth)));
+                    validateUnicodeCoverage(i, nodeType, tocBlock.title, fatals);
+                } else if (element instanceof CustomBlock customBlock) {
+                    validateUnicodeCoverage(i, nodeType, customBlock.family, fatals);
+                    validateUnicodeCoverage(i, nodeType, customBlock.type, fatals);
+                    for (Map.Entry<String, String> entry : customBlock.attributes.entrySet()) {
+                        validateUnicodeCoverage(i, nodeType, entry.getKey(), fatals);
+                        validateUnicodeCoverage(i, nodeType, entry.getValue(), fatals);
+                    }
+                }
+            }
+
+            for (TocReferenceCheck check : tocChecks) {
+                if (shallowestHeadingLevel > check.maxDepth()) {
+                    fatals.add(ValidationIssue.fatal("TOC_NO_REFERENCES", check.nodeIndex(), "TocBlock",
+                            "TOC requires at least one heading at or above maxDepth=" + check.maxDepth()));
+                }
+            }
+        }
+
+        private int resolveExpectedColumns(TableBlock tableBlock) {
+            if (!tableBlock.headerCells.isEmpty()) {
+                return tableBlock.headerCells.size();
+            }
+            if (!tableBlock.rows.isEmpty()) {
+                return tableBlock.rows.get(0).size();
+            }
+            return 0;
+        }
+
+        private void validateUnicodeCoverage(Integer nodeIndex, String nodeType, String value, List<ValidationIssue> fatals) {
+            if (value == null || value.isBlank()) {
+                return;
+            }
+            if (containsPotentiallyUnsupportedUnicode(value)) {
+                fatals.add(ValidationIssue.fatal("FONT_UNICODE_UNSUPPORTED", nodeIndex, nodeType,
+                        "Text contains characters outside WinAnsi coverage; configure Unicode-capable fonts before rendering"));
+            }
+        }
+
+        private boolean containsPotentiallyUnsupportedUnicode(String value) {
+            for (int i = 0; i < value.length(); i++) {
+                if (value.charAt(i) > 255) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void renderToDocument(PDDocument doc) throws IOException {
@@ -1038,6 +1192,37 @@ public final class A11yPdfDocument {
                     .replace(">", "&gt;")
                     .replace("\"", "&quot;")
                     .replace("'", "&apos;");
+        }
+
+        private record ValidationIssue(
+                Severity severity,
+                String code,
+                Integer nodeIndex,
+                String nodeType,
+                String message) {
+
+            static ValidationIssue fatal(String code, Integer nodeIndex, String nodeType, String message) {
+                return new ValidationIssue(Severity.FATAL, code, nodeIndex, nodeType, message);
+            }
+
+            static ValidationIssue warning(String code, Integer nodeIndex, String nodeType, String message) {
+                return new ValidationIssue(Severity.WARNING, code, nodeIndex, nodeType, message);
+            }
+
+            String format() {
+                String nodeContext = nodeIndex == null
+                        ? "document"
+                        : "node[" + nodeIndex + "]" + (nodeType == null ? "" : "(" + nodeType + ")");
+                return code + " @ " + nodeContext + ": " + message;
+            }
+        }
+
+        private enum Severity {
+            FATAL,
+            WARNING
+        }
+
+        private record TocReferenceCheck(int nodeIndex, int maxDepth) {
         }
     }
 
