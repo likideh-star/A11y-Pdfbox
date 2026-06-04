@@ -12,6 +12,7 @@ import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeFigure;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
+import com.likide.a11y.pdf.model.DeclarativeListItem;
 import com.likide.a11y.pdf.model.DeclarativeNode;
 import com.likide.a11y.pdf.model.DeclarativePageSettings;
 import com.likide.a11y.pdf.model.DeclarativeParagraph;
@@ -174,11 +175,27 @@ public final class JsonParser {
         JsonNode items = node.path("items");
         if (items.isArray()) {
             for (JsonNode item : items) {
-                list.items.add(item.asText(""));
+                if (item.isObject()) {
+                    DeclarativeListItem listItem = new DeclarativeListItem();
+                    listItem.text = text(item, "text");
+                    if (item.has("list")) {
+                        listItem.nestedList = parseList(item.path("list"));
+                    }
+                    list.itemNodes.add(listItem);
+                    list.items.add(listItem.text == null ? "" : listItem.text);
+                } else {
+                    String text = item.asText("");
+                    list.items.add(text);
+                    DeclarativeListItem listItem = new DeclarativeListItem();
+                    listItem.text = text;
+                    list.itemNodes.add(listItem);
+                }
             }
         }
         list.ordered = bool(node, "ordered");
         list.start = integer(node, "start");
+        list.bulletStyle = text(node, "bulletStyle");
+        list.customMarker = text(node, "customMarker");
         list.style = parseTextStyle(node.path("style"));
         list.indentStyle = text(node, "indentStyle");
         list.customIndentPt = floating(node, "customIndentPt");

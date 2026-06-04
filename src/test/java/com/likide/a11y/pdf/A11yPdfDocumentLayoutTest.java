@@ -15,6 +15,7 @@ import com.likide.a11y.pdf.json.JsonParser;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
+import com.likide.a11y.pdf.model.DeclarativeListItem;
 import com.likide.a11y.pdf.validation.ValidationException;
 
 class A11yPdfDocumentLayoutTest {
@@ -331,6 +332,90 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void buildBytes_nestedList_shouldRenderNestedItems() throws IOException {
+        A11yPdfDocument.ListBuilder rootList = A11yPdfDocument.builder()
+                .pageSize(260.0f, 220.0f)
+                .pageMargin(20.0f)
+                .heading(2, "Nested List")
+                .unorderedList(
+                        A11yPdfDocument.BoxModel.none(),
+                        A11yPdfDocument.TextStyle.none(),
+                        A11yPdfDocument.ListIndentStyle.TWO_SPACE,
+                        12.0f,
+                        A11yPdfDocument.ListBulletStyle.DASH,
+                        null);
+
+                rootList.item("parent item")
+                    .beginNestedUnorderedList(
+                        A11yPdfDocument.BoxModel.none(),
+                        A11yPdfDocument.TextStyle.none(),
+                        A11yPdfDocument.ListIndentStyle.TWO_SPACE,
+                        12.0f,
+                        A11yPdfDocument.ListBulletStyle.DASH,
+                        null)
+                .item("nested item")
+                    .endList();
+
+                rootList.item("sibling item");
+                byte[] pdf = rootList.endList().buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("parent item"));
+            assertTrue(extracted.contains("nested item"));
+            assertTrue(extracted.contains("sibling item"));
+        }
+    }
+
+    @Test
+    void buildBytes_customBulletMarker_shouldRenderMarkerPrefix() throws IOException {
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(260.0f, 220.0f)
+                .pageMargin(20.0f)
+                .unorderedList(
+                        A11yPdfDocument.BoxModel.none(),
+                        A11yPdfDocument.TextStyle.none(),
+                        A11yPdfDocument.ListIndentStyle.TWO_SPACE,
+                        12.0f,
+                        A11yPdfDocument.ListBulletStyle.CUSTOM,
+                        ">>")
+                .item("custom bullet item")
+                .endList()
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains(">> custom bullet item"));
+        }
+    }
+
+    @Test
+    void fromDeclarative_nestedList_shouldRenderNestedItems() throws IOException {
+        DeclarativeDocument doc = new DeclarativeDocument();
+
+        DeclarativeList nested = new DeclarativeList();
+        DeclarativeListItem nestedItem = new DeclarativeListItem();
+        nestedItem.text = "nested from declarative";
+        nested.itemNodes.add(nestedItem);
+
+        DeclarativeList root = new DeclarativeList();
+        DeclarativeListItem rootItem = new DeclarativeListItem();
+        rootItem.text = "root from declarative";
+        rootItem.nestedList = nested;
+        root.itemNodes.add(rootItem);
+
+        doc.nodes.add(root);
+
+        byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("root from declarative"));
+            assertTrue(extracted.contains("nested from declarative"));
+        }
+    }
+
+    @Test
     void fromDeclarative_articleStyleExample_shouldRenderAcrossMultiplePages() throws IOException {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("examples/article-style.json")) {
             assertTrue(in != null, "article-style example resource must be present");
@@ -345,6 +430,26 @@ class A11yPdfDocumentLayoutTest {
                 assertTrue(extracted.contains("Section One"));
                 assertTrue(extracted.contains("Section Two"));
                 assertTrue(extracted.contains("Section Three"));
+            }
+        }
+    }
+
+    @Test
+    void fromDeclarative_visualExample_shouldRenderNestedListContent() throws IOException {
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("examples/declarative-visual.json")) {
+            assertTrue(in != null, "declarative-visual example resource must be present");
+
+            DeclarativeDocument doc = JsonParser.parse(in);
+            byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
+                    .artifactHeaderFooter("Page %d of %d")
+                    .buildBytes();
+
+            try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                String extracted = new PDFTextStripper().getText(rendered);
+                assertTrue(extracted.contains("Nested Parent Item"));
+                assertTrue(extracted.contains("Nested Child Item A"));
+                assertTrue(extracted.contains("Nested Child Item B"));
+                assertTrue(extracted.contains("Top-level Sibling Item"));
             }
         }
     }

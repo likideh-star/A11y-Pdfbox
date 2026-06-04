@@ -38,6 +38,7 @@ import com.likide.a11y.pdf.model.FluentCustomNode;
 import com.likide.a11y.pdf.model.FluentDocumentSnapshot;
 import com.likide.a11y.pdf.model.FluentFigureNode;
 import com.likide.a11y.pdf.model.FluentHeadingNode;
+import com.likide.a11y.pdf.model.FluentListItemNode;
 import com.likide.a11y.pdf.model.FluentListNode;
 import com.likide.a11y.pdf.model.FluentNode;
 import com.likide.a11y.pdf.model.FluentParagraphNode;
@@ -50,6 +51,7 @@ import com.likide.a11y.pdf.model.IntermediateDocument;
 import com.likide.a11y.pdf.model.IntermediateFigure;
 import com.likide.a11y.pdf.model.IntermediateHeading;
 import com.likide.a11y.pdf.model.IntermediateList;
+import com.likide.a11y.pdf.model.IntermediateListItem;
 import com.likide.a11y.pdf.model.IntermediateNode;
 import com.likide.a11y.pdf.model.IntermediateParagraph;
 import com.likide.a11y.pdf.model.IntermediateSection;
@@ -114,15 +116,17 @@ public final class A11yPdfDocument {
                         fromIntermediateBoxModel(list.boxModel()),
                         fromIntermediateStyle(list.style(), FontVariant.REGULAR),
                         parseListIndentStyle(list.indentStyle()),
-                        list.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : list.customIndentPt())
+                                list.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : list.customIndentPt(),
+                                parseListBulletStyle(list.bulletStyle()),
+                                list.customMarker())
                     : builder.unorderedList(
                         fromIntermediateBoxModel(list.boxModel()),
                         fromIntermediateStyle(list.style(), FontVariant.REGULAR),
                         parseListIndentStyle(list.indentStyle()),
-                        list.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : list.customIndentPt());
-                for (String item : list.items()) {
-                    listBuilder.item(item);
-                }
+                                list.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : list.customIndentPt(),
+                                parseListBulletStyle(list.bulletStyle()),
+                                list.customMarker());
+                addIntermediateListItems(listBuilder, list.itemNodes());
                 listBuilder.endList();
             } else if (node instanceof IntermediateTable table) {
                 TableBuilder tableBuilder = builder.table(
@@ -200,9 +204,59 @@ public final class A11yPdfDocument {
         }
     }
 
+    private static ListBulletStyle parseListBulletStyle(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return ListBulletStyle.DASH;
+        }
+        String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        try {
+            return ListBulletStyle.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return ListBulletStyle.DASH;
+        }
+    }
+
+    private static void addIntermediateListItems(ListBuilder listBuilder, List<IntermediateListItem> items) {
+        for (IntermediateListItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            ListBuilder itemBuilder = listBuilder.item(item.text());
+            if (item.nestedList() != null) {
+                IntermediateList nested = item.nestedList();
+                ListBuilder nestedBuilder = (nested.ordered() != null && nested.ordered())
+                        ? itemBuilder.beginNestedOrderedList(
+                                nested.start() == null ? 1 : nested.start(),
+                                fromIntermediateBoxModel(nested.boxModel()),
+                                fromIntermediateStyle(nested.style(), FontVariant.REGULAR),
+                                parseListIndentStyle(nested.indentStyle()),
+                                nested.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : nested.customIndentPt(),
+                                parseListBulletStyle(nested.bulletStyle()),
+                                nested.customMarker())
+                        : itemBuilder.beginNestedUnorderedList(
+                                fromIntermediateBoxModel(nested.boxModel()),
+                                fromIntermediateStyle(nested.style(), FontVariant.REGULAR),
+                                parseListIndentStyle(nested.indentStyle()),
+                                nested.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : nested.customIndentPt(),
+                                parseListBulletStyle(nested.bulletStyle()),
+                                nested.customMarker());
+                addIntermediateListItems(nestedBuilder, nested.itemNodes());
+                nestedBuilder.endList();
+            }
+        }
+    }
+
     public enum ListIndentStyle {
         ALIGN_WITH_BULLET,
         TWO_SPACE,
+        CUSTOM
+    }
+
+    public enum ListBulletStyle {
+        DISC,
+        CIRCLE,
+        SQUARE,
+        DASH,
         CUSTOM
     }
 
@@ -350,7 +404,7 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList(BoxModel boxModel) {
-            return list(false, 1, boxModel, TextStyle.of(null, FontVariant.REGULAR), ListIndentStyle.TWO_SPACE, DEFAULT_CUSTOM_LIST_INDENT_PT);
+            return list(false, 1, boxModel, TextStyle.of(null, FontVariant.REGULAR), ListIndentStyle.TWO_SPACE, DEFAULT_CUSTOM_LIST_INDENT_PT, ListBulletStyle.DASH, null);
         }
 
         public ListBuilder unorderedList(BoxModel boxModel, TextStyle style) {
@@ -358,14 +412,43 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList(BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
-            return list(false, 1, boxModel, style, indentStyle, customIndentPt);
+            return unorderedList(boxModel, style, indentStyle, customIndentPt, ListBulletStyle.DASH, null);
+        }
+
+        public ListBuilder unorderedList(
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
+            return list(false, 1, boxModel, style, indentStyle, customIndentPt, bulletStyle, customMarker);
         }
 
         public ListBuilder orderedList(int start, BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
-            return list(true, start, boxModel, style, indentStyle, customIndentPt);
+            return orderedList(start, boxModel, style, indentStyle, customIndentPt, ListBulletStyle.DASH, null);
         }
 
-        private ListBuilder list(boolean ordered, int start, BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
+        public ListBuilder orderedList(
+                int start,
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
+            return list(true, start, boxModel, style, indentStyle, customIndentPt, bulletStyle, customMarker);
+        }
+
+        private ListBuilder list(
+                boolean ordered,
+                int start,
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
             if (indentStyle == null) {
                 throw new ValidationException("List indent style must not be null");
             }
@@ -375,13 +458,21 @@ public final class A11yPdfDocument {
             if (ordered && start < 1) {
                 throw new ValidationException("Ordered list start must be >= 1");
             }
+            if (bulletStyle == null) {
+                throw new ValidationException("List bullet style must not be null");
+            }
+            if (bulletStyle == ListBulletStyle.CUSTOM && (customMarker == null || customMarker.isBlank())) {
+                throw new ValidationException("Custom bullet style requires a non-blank custom marker");
+            }
             ListBlock block = new ListBlock(
                     boxModel,
                     normalizeStyle(style, FontVariant.REGULAR),
                     indentStyle,
                     customIndentPt,
                     ordered,
-                    start);
+                    start,
+                    bulletStyle,
+                    customMarker);
             elements.add(block);
             return new ListBuilder(this, block);
         }
@@ -524,7 +615,12 @@ public final class A11yPdfDocument {
                 } else if (element instanceof Figure figure) {
                     nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
                 } else if (element instanceof ListBlock listBlock) {
-                    nodes.add(new FluentListNode(List.copyOf(listBlock.items), listBlock.ordered, listBlock.start));
+                    nodes.add(new FluentListNode(
+                            toFluentListItems(listBlock.items),
+                            listBlock.ordered,
+                            listBlock.start,
+                            listBlock.bulletStyle.name(),
+                            listBlock.customMarker));
                 } else if (element instanceof TableBlock tableBlock) {
                     List<IntermediateTableRow> rows = new ArrayList<>();
                     for (List<String> row : tableBlock.rows) {
@@ -554,6 +650,23 @@ public final class A11yPdfDocument {
                             marginBottom,
                             marginLeft),
                     List.copyOf(nodes));
+        }
+
+        private List<FluentListItemNode> toFluentListItems(List<ListItem> items) {
+            List<FluentListItemNode> nodes = new ArrayList<>();
+            for (ListItem item : items) {
+                FluentListNode nested = null;
+                if (item.nestedList != null) {
+                    nested = new FluentListNode(
+                            toFluentListItems(item.nestedList.items),
+                            item.nestedList.ordered,
+                            item.nestedList.start,
+                            item.nestedList.bulletStyle.name(),
+                            item.nestedList.customMarker);
+                }
+                nodes.add(new FluentListItemNode(item.text, nested));
+            }
+            return List.copyOf(nodes);
         }
 
         public byte[] buildBytes() {
@@ -630,14 +743,7 @@ public final class A11yPdfDocument {
                         fatals.add(ValidationIssue.fatal("LIST_EMPTY", i, nodeType,
                                 "List must contain at least one item"));
                     }
-                    for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
-                        String item = listBlock.items.get(itemIndex);
-                        if (item == null || item.isBlank()) {
-                            fatals.add(ValidationIssue.fatal("LIST_ITEM_BLANK", i, nodeType,
-                                    "List item at index " + itemIndex + " must not be blank"));
-                        }
-                        validateUnicodeCoverage(i, nodeType, item, fatals);
-                    }
+                    validateListItems(i, nodeType, listBlock.items, fatals);
                 } else if (element instanceof TableBlock tableBlock) {
                     if (tableBlock.headerCells.isEmpty() && tableBlock.rows.isEmpty()) {
                         fatals.add(ValidationIssue.fatal("TABLE_EMPTY", i, nodeType,
@@ -683,6 +789,25 @@ public final class A11yPdfDocument {
                 if (shallowestHeadingLevel > check.maxDepth()) {
                     fatals.add(ValidationIssue.fatal("TOC_NO_REFERENCES", check.nodeIndex(), "TocBlock",
                             "TOC requires at least one heading at or above maxDepth=" + check.maxDepth()));
+                }
+            }
+        }
+
+        private void validateListItems(Integer nodeIndex, String nodeType, List<ListItem> items, List<ValidationIssue> fatals) {
+            for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
+                ListItem item = items.get(itemIndex);
+                if (item.text == null || item.text.isBlank()) {
+                    fatals.add(ValidationIssue.fatal("LIST_ITEM_BLANK", nodeIndex, nodeType,
+                            "List item at index " + itemIndex + " must not be blank"));
+                }
+                validateUnicodeCoverage(nodeIndex, nodeType, item.text, fatals);
+                if (item.nestedList != null) {
+                    if (item.nestedList.items.isEmpty()) {
+                        fatals.add(ValidationIssue.fatal("LIST_EMPTY", nodeIndex, nodeType,
+                                "Nested list at index " + itemIndex + " must contain at least one item"));
+                    } else {
+                        validateListItems(nodeIndex, nodeType, item.nestedList.items, fatals);
+                    }
                 }
             }
         }
@@ -953,7 +1078,7 @@ public final class A11yPdfDocument {
                 + paragraph.boxModel.marginTop() + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom();
             }
             if (element instanceof ListBlock listBlock) {
-                return listBlock.items.size() * 14.4f
+                return countRenderedListItems(listBlock) * 14.4f
                         + listBlock.boxModel.marginTop()
                         + listBlock.boxModel.paddingTop()
                         + listBlock.boxModel.paddingBottom()
@@ -1002,33 +1127,7 @@ public final class A11yPdfDocument {
 
                 } else if (element instanceof ListBlock listBlock) {
                     float leading = 14.4f;
-                    float bulletX = x + 12.0f;
-                    float availableTextWidth = contentWidth - 12.0f;
-                    float averageCharWidth = 12.0f * 0.5f;
-                    float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
-                    float continuationWidth = switch (listBlock.indentStyle) {
-                        case ALIGN_WITH_BULLET -> availableTextWidth;
-                        case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
-                        case CUSTOM -> Math.max(1.0f, availableTextWidth - listBlock.customIndentPt);
-                    };
-                    float wrapWidth = Math.max(1.0f, Math.min(firstLineWidth, continuationWidth));
-                    for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
-                        String item = listBlock.items.get(itemIndex);
-                        List<String> lines = wrapText(item, wrapWidth, averageCharWidth);
-                        for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
-                            String line = lines.get(lineIndex);
-                            float lineX = bulletX;
-                            if (lineIndex == 0) {
-                                line = listItemPrefix(listBlock, itemIndex) + line;
-                            } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
-                                line = "  " + line;
-                            } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
-                                lineX += listBlock.customIndentPt;
-                            }
-                            drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
-                            y -= leading;
-                        }
-                    }
+                    y = renderListWithoutPaging(cs, fontRuntimes, listBlock, x, y, leading);
                     y -= 8.0f;
 
                 } else if (element instanceof TableBlock tableBlock) {
@@ -1214,95 +1313,9 @@ public final class A11yPdfDocument {
                 float x,
                 ListBlock listBlock,
             Map<String, FontRuntime> fontRuntimes) throws IOException {
-            float fontSize = 12.0f;
-            float leading = 14.4f;
-            BoxModel boxModel = listBlock.boxModel;
-            float contentX = x + boxModel.paddingLeft();
-            float bulletX = contentX + 12.0f;
-            float availableTextWidth = pageWidth - bulletX - marginRight - boxModel.paddingRight();
-            if (availableTextWidth <= 0.0f) {
-                throw new ValidationException("List box model leaves no room for content");
-            }
-
-            float averageCharWidth = fontSize * 0.5f;
-            float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
-            float continuationWidth = switch (listBlock.indentStyle) {
-                case ALIGN_WITH_BULLET -> availableTextWidth;
-                case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
-                case CUSTOM -> Math.max(1.0f, availableTextWidth - listBlock.customIndentPt);
-            };
-            float wrapWidth = Math.max(1.0f, Math.min(firstLineWidth, continuationWidth));
-
-            if (listBlock.items.isEmpty()) {
-                return new RenderCursor(
-                        startPage,
-                        startY - boxModel.marginTop() - boxModel.paddingTop() - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
-            }
-
-            List<List<String>> wrappedItems = new ArrayList<>();
-            for (String item : listBlock.items) {
-                wrappedItems.add(wrapText(item, wrapWidth, averageCharWidth));
-            }
-
-            PDPage page = startPage;
-            float y = startY - boxModel.marginTop() - boxModel.paddingTop();
-            int itemStart = 0;
-            int lineIndex = 0;
-
-            while (true) {
-                int maxLinesThisPage = (int) Math.floor((y - marginBottom) / leading);
-                if (maxLinesThisPage <= 0) {
-                    page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
-                    continue;
-                }
-                float lineY = y;
-                int linesDrawn = 0;
-
-                try (PDPageContentStream cs = new PDPageContentStream(
-                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    while (linesDrawn < maxLinesThisPage && itemStart < wrappedItems.size()) {
-                        List<String> itemLines = wrappedItems.get(itemStart);
-                        String textLine = itemLines.get(lineIndex);
-
-                        float lineX = bulletX;
-                        if (lineIndex == 0) {
-                            textLine = listItemPrefix(listBlock, itemStart) + textLine;
-                        } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
-                            textLine = "  " + textLine;
-                        } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
-                            lineX += listBlock.customIndentPt;
-                        }
-
-                        drawChunkedLine(
-                                cs,
-                            fontRuntimes,
-                            null,
-                            listBlock.style,
-                            FontVariant.REGULAR,
-                                fontSize,
-                                lineX,
-                                lineY,
-                                textLine);
-
-                        lineY -= leading;
-                        linesDrawn++;
-                        lineIndex++;
-
-                        if (lineIndex >= itemLines.size()) {
-                            itemStart++;
-                            lineIndex = 0;
-                        }
-                    }
-                }
-
-                if (itemStart >= wrappedItems.size()) {
-                    return new RenderCursor(page, lineY - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
-                }
-
-                page = addStructuredPage(doc);
-                y = pageHeight - marginTop;
-            }
+            ListFlowState state = new ListFlowState(startPage, startY);
+            state = renderListWithPaging(doc, state, x, listBlock, fontRuntimes);
+            return new RenderCursor(state.page(), state.y() - 8.0f);
         }
 
         private RenderCursor renderTableAcrossPages(
@@ -1771,21 +1784,157 @@ public final class A11yPdfDocument {
             return parts;
         }
 
-        private String listItemPrefix(ListBlock listBlock, int itemIndex) {
-            if (!listBlock.ordered) {
-                return "- ";
+        private float renderListWithoutPaging(
+                PDPageContentStream cs,
+                Map<String, FontRuntime> fontRuntimes,
+                ListBlock listBlock,
+                float x,
+                float startY,
+                float leading) throws IOException {
+            float y = startY - listBlock.boxModel.marginTop() - listBlock.boxModel.paddingTop();
+            float contentX = x + listBlock.boxModel.paddingLeft();
+            float bulletX = contentX + 12.0f;
+            float averageCharWidth = 12.0f * 0.5f;
+            float availableTextWidth = pageWidth - bulletX - marginRight - listBlock.boxModel.paddingRight();
+            if (availableTextWidth <= 0.0f) {
+                throw new ValidationException("List box model leaves no room for content");
             }
-            return (listBlock.start + itemIndex) + ". ";
+            float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
+            float continuationWidth = switch (listBlock.indentStyle) {
+                case ALIGN_WITH_BULLET -> availableTextWidth;
+                case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
+                case CUSTOM -> Math.max(1.0f, availableTextWidth - listBlock.customIndentPt);
+            };
+            float wrapWidth = Math.max(1.0f, Math.min(firstLineWidth, continuationWidth));
+
+            for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
+                ListItem item = listBlock.items.get(itemIndex);
+                List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
+                for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                    String line = lines.get(lineIndex);
+                    float lineX = bulletX;
+                    if (lineIndex == 0) {
+                        line = listItemPrefix(listBlock, itemIndex) + line;
+                    } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
+                        line = "  " + line;
+                    } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
+                        lineX += listBlock.customIndentPt;
+                    }
+                    drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                    y -= leading;
+                }
+                if (item.nestedList != null) {
+                    y = renderListWithoutPaging(cs, fontRuntimes, item.nestedList, x + 18.0f, y, leading);
+                }
+            }
+
+            y -= listBlock.boxModel.paddingBottom() + listBlock.boxModel.marginBottom();
+            return y;
+        }
+
+        private ListFlowState renderListWithPaging(
+                PDDocument doc,
+                ListFlowState start,
+                float x,
+                ListBlock listBlock,
+                Map<String, FontRuntime> fontRuntimes) throws IOException {
+            float y = start.y() - listBlock.boxModel.marginTop() - listBlock.boxModel.paddingTop();
+            PDPage page = start.page();
+            if (y <= marginBottom) {
+                page = addStructuredPage(doc);
+                y = pageHeight - marginTop;
+            }
+
+            float contentX = x + listBlock.boxModel.paddingLeft();
+            float bulletX = contentX + 12.0f;
+            float averageCharWidth = 12.0f * 0.5f;
+            float availableTextWidth = pageWidth - bulletX - marginRight - listBlock.boxModel.paddingRight();
+            if (availableTextWidth <= 0.0f) {
+                throw new ValidationException("List box model leaves no room for content");
+            }
+            float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
+            float continuationWidth = switch (listBlock.indentStyle) {
+                case ALIGN_WITH_BULLET -> availableTextWidth;
+                case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
+                case CUSTOM -> Math.max(1.0f, availableTextWidth - listBlock.customIndentPt);
+            };
+            float wrapWidth = Math.max(1.0f, Math.min(firstLineWidth, continuationWidth));
+
+            for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
+                ListItem item = listBlock.items.get(itemIndex);
+                List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
+                for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                    if (y - 14.4f < marginBottom) {
+                        page = addStructuredPage(doc);
+                        y = pageHeight - marginTop;
+                    }
+                    String line = lines.get(lineIndex);
+                    float lineX = bulletX;
+                    if (lineIndex == 0) {
+                        line = listItemPrefix(listBlock, itemIndex) + line;
+                    } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
+                        line = "  " + line;
+                    } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
+                        lineX += listBlock.customIndentPt;
+                    }
+                    try (PDPageContentStream cs = new PDPageContentStream(
+                            doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                        drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                    }
+                    y -= 14.4f;
+                }
+
+                if (item.nestedList != null) {
+                    ListFlowState nestedState = renderListWithPaging(
+                            doc,
+                            new ListFlowState(page, y),
+                            x + 18.0f,
+                            item.nestedList,
+                            fontRuntimes);
+                    page = nestedState.page();
+                    y = nestedState.y();
+                }
+            }
+
+            y -= listBlock.boxModel.paddingBottom() + listBlock.boxModel.marginBottom();
+            return new ListFlowState(page, y);
+        }
+
+        private String listItemPrefix(ListBlock listBlock, int itemIndex) {
+            if (listBlock.ordered) {
+                return (listBlock.start + itemIndex) + ". ";
+            }
+            return switch (listBlock.bulletStyle) {
+                case DISC -> "* ";
+                case CIRCLE -> "o ";
+                case SQUARE -> "+ ";
+                case DASH -> "- ";
+                case CUSTOM -> listBlock.customMarker + " ";
+            };
         }
 
         private float maxListPrefixWidth(ListBlock listBlock) {
             float averageCharWidth = 12.0f * 0.5f;
-            if (!listBlock.ordered) {
-                return 2.0f * averageCharWidth;
+            if (listBlock.ordered) {
+                int maxNumber = listBlock.start + Math.max(0, listBlock.items.size() - 1);
+                int markerChars = String.valueOf(maxNumber).length() + 2;
+                return markerChars * averageCharWidth;
             }
-            int maxNumber = listBlock.start + Math.max(0, listBlock.items.size() - 1);
-            int markerChars = String.valueOf(maxNumber).length() + 2;
+            int markerChars = switch (listBlock.bulletStyle) {
+                case DISC, CIRCLE, SQUARE, DASH -> 2;
+                case CUSTOM -> (listBlock.customMarker == null ? 1 : listBlock.customMarker.length()) + 1;
+            };
             return markerChars * averageCharWidth;
+        }
+
+        private int countRenderedListItems(ListBlock listBlock) {
+            int count = listBlock.items.size();
+            for (ListItem item : listBlock.items) {
+                if (item.nestedList != null) {
+                    count += countRenderedListItems(item.nestedList);
+                }
+            }
+            return count;
         }
 
         private void buildStructureTree(PDDocument doc) {
@@ -1801,20 +1950,39 @@ public final class A11yPdfDocument {
                 } else if (element instanceof Figure) {
                     root.appendKid(new PDStructureElement(StandardStructureTypes.Figure, root));
                 } else if (element instanceof ListBlock listBlock) {
-                    PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, root);
-                    root.appendKid(list);
-                    for (String ignored : listBlock.items) {
-                        PDStructureElement li = new PDStructureElement(StandardStructureTypes.LI, list);
-                        list.appendKid(li);
-                        li.appendKid(new PDStructureElement("Lbl", li));
-                        li.appendKid(new PDStructureElement("LBody", li));
-                    }
+                    appendListStructure(root, listBlock);
                 } else if (element instanceof TableBlock) {
                     root.appendKid(new PDStructureElement(StandardStructureTypes.TABLE, root));
                 } else if (element instanceof TocBlock) {
                     root.appendKid(new PDStructureElement(StandardStructureTypes.TOC, root));
                 } else if (element instanceof CustomBlock) {
                     root.appendKid(new PDStructureElement("Sect", root));
+                }
+            }
+        }
+
+        private void appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock) {
+            PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
+            parent.appendKid(list);
+            appendListItemsStructure(list, listBlock);
+        }
+
+        private void appendListStructure(PDStructureElement parent, ListBlock listBlock) {
+            PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
+            parent.appendKid(list);
+            appendListItemsStructure(list, listBlock);
+        }
+
+        private void appendListItemsStructure(PDStructureElement list, ListBlock listBlock) {
+            for (ListItem item : listBlock.items) {
+                PDStructureElement li = new PDStructureElement(StandardStructureTypes.LI, list);
+                list.appendKid(li);
+                PDStructureElement label = new PDStructureElement("Lbl", li);
+                PDStructureElement body = new PDStructureElement("LBody", li);
+                li.appendKid(label);
+                li.appendKid(body);
+                if (item.nestedList != null) {
+                    appendListStructure(body, item.nestedList);
                 }
             }
         }
@@ -1906,6 +2074,7 @@ public final class A11yPdfDocument {
     public static final class ListBuilder {
         private final Builder parent;
         private final ListBlock block;
+        private ListItem lastItem;
 
         private ListBuilder(Builder parent, ListBlock block) {
             this.parent = parent;
@@ -1913,8 +2082,48 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder item(String text) {
-            block.items.add(text);
+            ListItem item = new ListItem(text == null ? "" : text);
+            block.items.add(item);
+            lastItem = item;
             return this;
+        }
+
+        public ListBuilder beginNestedUnorderedList(
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
+            ensureLastItemForNesting();
+            ListBuilder nestedBuilder = parent.list(false, 1, boxModel, style, indentStyle, customIndentPt, bulletStyle, customMarker);
+            parent.elements.remove(parent.elements.size() - 1);
+            lastItem.nestedList = nestedBuilder.block;
+            return nestedBuilder;
+        }
+
+        public ListBuilder beginNestedOrderedList(
+                int start,
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
+            ensureLastItemForNesting();
+            ListBuilder nestedBuilder = parent.list(true, start, boxModel, style, indentStyle, customIndentPt, bulletStyle, customMarker);
+            parent.elements.remove(parent.elements.size() - 1);
+            lastItem.nestedList = nestedBuilder.block;
+            return nestedBuilder;
+        }
+
+        private void ensureLastItemForNesting() {
+            if (lastItem == null) {
+                throw new ValidationException("Nested lists require at least one parent list item");
+            }
+            if (lastItem.nestedList != null) {
+                throw new ValidationException("Parent list item already contains a nested list");
+            }
         }
 
         public ListBuilder alignWithBulletIndent() {
@@ -2072,7 +2281,9 @@ public final class A11yPdfDocument {
         private float customIndentPt;
         private final boolean ordered;
         private final int start;
-        private final List<String> items = new ArrayList<>();
+        private final ListBulletStyle bulletStyle;
+        private final String customMarker;
+        private final List<ListItem> items = new ArrayList<>();
 
         private ListBlock(
                 BoxModel boxModel,
@@ -2080,13 +2291,26 @@ public final class A11yPdfDocument {
                 ListIndentStyle indentStyle,
                 float customIndentPt,
                 boolean ordered,
-                int start) {
+                int start,
+                ListBulletStyle bulletStyle,
+                String customMarker) {
             this.boxModel = boxModel;
             this.style = style;
             this.indentStyle = indentStyle;
             this.customIndentPt = customIndentPt;
             this.ordered = ordered;
             this.start = start;
+            this.bulletStyle = bulletStyle;
+            this.customMarker = customMarker;
+        }
+    }
+
+    private static final class ListItem {
+        private final String text;
+        private ListBlock nestedList;
+
+        private ListItem(String text) {
+            this.text = text;
         }
     }
 
@@ -2255,6 +2479,9 @@ public final class A11yPdfDocument {
     }
 
     private record FlowCursor(PDPage page, int columnIndex, float y) {
+    }
+
+    private record ListFlowState(PDPage page, float y) {
     }
 
     private record RenderCursor(PDPage page, float y) {

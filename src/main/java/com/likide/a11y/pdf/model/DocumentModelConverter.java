@@ -43,13 +43,15 @@ public final class DocumentModelConverter {
                         new SemanticMetadata("Figure", null, "core")));
             } else if (node instanceof FluentListNode list) {
                 nodes.add(new IntermediateList(
-                        List.copyOf(list.items()),
+                        convertFluentListItems(list.itemNodes()),
                         new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
                         null,
                         null,
                         null,
                         list.ordered(),
                         list.start(),
+                        list.bulletStyle(),
+                        list.customMarker(),
                         new SemanticMetadata("L", null, "core")));
             } else if (node instanceof FluentTableNode table) {
                 nodes.add(new IntermediateTable(
@@ -176,14 +178,25 @@ public final class DocumentModelConverter {
             if (start < 1) {
                 throw new ValidationException("Ordered list start must be >= 1");
             }
+
+            List<IntermediateListItem> itemNodes = new ArrayList<>();
+            if (!list.itemNodes.isEmpty()) {
+                itemNodes.addAll(convertDeclarativeListItems(list.itemNodes));
+            } else {
+                for (String itemText : list.items) {
+                    itemNodes.add(new IntermediateListItem(itemText, null));
+                }
+            }
             return new IntermediateList(
-                    List.copyOf(list.items),
+                    List.copyOf(itemNodes),
                     resolveBoxModel(list.boxModel),
                     resolveStyle(list.style),
                     list.indentStyle,
                     list.customIndentPt,
                     ordered,
                     start,
+                    list.bulletStyle,
+                    list.customMarker,
                     resolveSemantic("L", list.semantic, "core"));
         }
         if (node instanceof DeclarativeTable table) {
@@ -286,6 +299,75 @@ public final class DocumentModelConverter {
 
     private static float nullAsZero(Float value) {
         return value == null ? 0.0f : value;
+    }
+
+    private static List<IntermediateListItem> convertFluentListItems(List<FluentListItemNode> itemNodes) {
+        List<IntermediateListItem> converted = new ArrayList<>();
+        for (FluentListItemNode item : itemNodes) {
+            if (item == null) {
+                continue;
+            }
+            IntermediateList nested = null;
+            if (item.nestedList() != null) {
+                FluentListNode nestedNode = item.nestedList();
+                nested = new IntermediateList(
+                        convertFluentListItems(nestedNode.itemNodes()),
+                        new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
+                        null,
+                        null,
+                        null,
+                        nestedNode.ordered(),
+                        nestedNode.start(),
+                        nestedNode.bulletStyle(),
+                        nestedNode.customMarker(),
+                        new SemanticMetadata("L", null, "core"));
+            }
+            converted.add(new IntermediateListItem(item.text(), nested));
+        }
+        return List.copyOf(converted);
+    }
+
+    private static List<IntermediateListItem> convertDeclarativeListItems(List<DeclarativeListItem> itemNodes) {
+        List<IntermediateListItem> converted = new ArrayList<>();
+        for (DeclarativeListItem item : itemNodes) {
+            if (item == null) {
+                continue;
+            }
+            IntermediateList nested = null;
+            if (item.nestedList != null) {
+                boolean nestedOrdered = item.nestedList.ordered != null && item.nestedList.ordered;
+                int nestedStart = item.nestedList.start == null ? 1 : item.nestedList.start;
+                if (nestedStart < 1) {
+                    throw new ValidationException("Ordered list start must be >= 1");
+                }
+
+                List<IntermediateListItem> nestedItems = item.nestedList.itemNodes.isEmpty()
+                        ? convertDeclarativeListItemsFromStrings(item.nestedList.items)
+                        : convertDeclarativeListItems(item.nestedList.itemNodes);
+
+                nested = new IntermediateList(
+                        nestedItems,
+                        resolveBoxModel(item.nestedList.boxModel),
+                        resolveStyle(item.nestedList.style),
+                        item.nestedList.indentStyle,
+                        item.nestedList.customIndentPt,
+                        nestedOrdered,
+                        nestedStart,
+                        item.nestedList.bulletStyle,
+                        item.nestedList.customMarker,
+                        resolveSemantic("L", item.nestedList.semantic, "core"));
+            }
+            converted.add(new IntermediateListItem(item.text, nested));
+        }
+        return List.copyOf(converted);
+    }
+
+    private static List<IntermediateListItem> convertDeclarativeListItemsFromStrings(List<String> items) {
+        List<IntermediateListItem> converted = new ArrayList<>();
+        for (String itemText : items) {
+            converted.add(new IntermediateListItem(itemText, null));
+        }
+        return List.copyOf(converted);
     }
 
     private static boolean isBlank(String value) {

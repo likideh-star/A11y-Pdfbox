@@ -2,7 +2,7 @@
 
 This document converts the PRD into execution milestones with concrete deliverables, scope boundaries, and exit criteria for the accessible PDF library built on PDFBox 3.0.x.
 
-## Current Status (2026-06-04)
+## Current Status (2026-06-05)
 
 1. Milestone 1: Done.
 2. Milestone 2: Done.
@@ -13,6 +13,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 7. Milestone 7: Done.
 8. Milestone 8: Done.
 9. Milestone 9: Done.
+10. Milestone 10: Done.
 
 ### Latest Completed Work
 
@@ -36,10 +37,12 @@ This document converts the PRD into execution milestones with concrete deliverab
 18. Regression tests were added for Milestone 9 mixed-flow hardening (pagination with padded paragraph, and fail-fast validation for impossible heading box model).
 19. Final Milestone 9 sign-off example added: a dedicated article-style declarative resource with multi-section heading/paragraph flow.
 20. Final Milestone 9 regression verifies the article-style example renders end to end through JSON parsing, declarative conversion, and PDF generation.
+21. Milestone 10 implemented end to end: nested list item models, declarative parsing for structured list items and nested child lists, bullet style variants, recursive paginated list rendering, and recursive `L/LI/Lbl/LBody` structure-tree emission.
+22. Milestone 10 regression coverage added for nested fluent lists, custom bullet markers, and nested declarative list rendering.
 
 ### Next Focus
 
-1. Continue with Milestone 10 nested list semantics and structural `L/LI/Lbl/LBody` behavior.
+1. Continue with Milestone 11 table semantics hardening (header associations and production-level splitting behavior).
 
 ## Planning Principles
 
