@@ -984,6 +984,23 @@ public final class A11yPdfDocument {
                     continue;
                 }
 
+                if (element instanceof TocBlock tocBlock) {
+                    FlowCursor cursor = renderTocAcrossFlow(
+                            doc,
+                            page,
+                            fontRuntimes,
+                            tocBlock,
+                            activeColumnIndex,
+                            activeColumns,
+                            activeColumnGap,
+                            y,
+                            activeColumnWidth);
+                    page = cursor.page();
+                    activeColumnIndex = cursor.columnIndex();
+                    y = cursor.y();
+                    continue;
+                }
+
                 if (element instanceof Figure figure) {
                     FlowCursor cursor = renderFigureAcrossFlow(
                             doc,
@@ -1143,6 +1160,16 @@ public final class A11yPdfDocument {
                         + tableBlock.boxModel.marginBottom()
                         + 8.0f;
             }
+            if (element instanceof TocBlock tocBlock) {
+                float content = 14.4f;
+                String title = tocBlock.title == null || tocBlock.title.isBlank() ? "Table of Contents" : tocBlock.title;
+                content += wrapText(title, Math.max(1.0f, contentWidth), 12.0f * 0.55f).size() * 14.4f;
+                for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+                    String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
+                    content += wrapText(line, Math.max(1.0f, contentWidth), 11.0f * 0.5f).size() * 13.2f;
+                }
+                return content + 8.0f;
+            }
             return 24.0f;
         }
 
@@ -1241,10 +1268,16 @@ public final class A11yPdfDocument {
                     y = tableBottom - 8.0f;
 
                 } else if (element instanceof TocBlock tocBlock) {
-                    String label = tocBlock.title == null || tocBlock.title.isBlank()
+                    String title = tocBlock.title == null || tocBlock.title.isBlank()
                             ? "Table of Contents" : tocBlock.title;
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, label);
-                    y -= 20.0f;
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
+                    y -= 14.4f;
+                    for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+                        String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
+                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
+                        y -= 13.2f;
+                    }
+                    y -= 8.0f;
 
                 } else if (element instanceof Figure figure) {
                     String label = figure.decorative ? "[Figure - decorative]"
@@ -1419,6 +1452,75 @@ public final class A11yPdfDocument {
                 columnIndex = 0;
             }
             return new FlowCursor(page, columnIndex, nextY);
+        }
+
+        private FlowCursor renderTocAcrossFlow(
+                PDDocument doc,
+                PDPage startPage,
+                Map<String, FontRuntime> fontRuntimes,
+                TocBlock tocBlock,
+                int startColumnIndex,
+                int activeColumns,
+                float activeColumnGap,
+                float startY,
+                float activeColumnWidth) throws IOException {
+            PDPage page = startPage;
+            int columnIndex = startColumnIndex;
+            float y = startY;
+
+            String title = tocBlock.title == null || tocBlock.title.isBlank() ? "Table of Contents" : tocBlock.title;
+            List<String> titleLines = wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f);
+
+            for (String line : titleLines) {
+                if (y - 14.4f < marginBottom) {
+                    FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                    page = next.page();
+                    columnIndex = next.columnIndex();
+                    y = next.y();
+                }
+                float x = activeColumns <= 1
+                        ? marginLeft
+                        : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, line);
+                }
+                y -= 14.4f;
+            }
+
+            for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+                String entryText = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
+                List<String> lines = wrapText(entryText, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f);
+                for (String line : lines) {
+                    if (y - 13.2f < marginBottom) {
+                        FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                        page = next.page();
+                        columnIndex = next.columnIndex();
+                        y = next.y();
+                    }
+                    float x = activeColumns <= 1
+                            ? marginLeft
+                            : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                    try (PDPageContentStream cs = new PDPageContentStream(
+                            doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
+                    }
+                    y -= 13.2f;
+                }
+            }
+
+            return new FlowCursor(page, columnIndex, y - 8.0f);
+        }
+
+        private List<TocEntry> buildTocEntries(int maxDepth) {
+            List<TocEntry> entries = new ArrayList<>();
+            int depth = Math.max(1, maxDepth);
+            for (Element element : elements) {
+                if (element instanceof Heading heading && heading.level <= depth) {
+                    entries.add(new TocEntry(heading.level, heading.text));
+                }
+            }
+            return entries;
         }
 
         private FigureRenderPlan buildFigureRenderPlan(PDDocument doc, Figure figure, float availableWidth) {
@@ -2233,8 +2335,8 @@ public final class A11yPdfDocument {
                     appendListStructure(root, listBlock);
                 } else if (element instanceof TableBlock tableBlock) {
                     appendTableStructure(root, tableBlock);
-                } else if (element instanceof TocBlock) {
-                    root.appendKid(new PDStructureElement(StandardStructureTypes.TOC, root));
+                } else if (element instanceof TocBlock tocBlock) {
+                    appendTocStructure(root, tocBlock);
                 } else if (element instanceof CustomBlock) {
                     root.appendKid(new PDStructureElement("Sect", root));
                 }
@@ -2292,6 +2394,19 @@ public final class A11yPdfDocument {
                     PDStructureElement td = new PDStructureElement(StandardStructureTypes.TD, tr);
                     tr.appendKid(td);
                 }
+            }
+        }
+
+        private void appendTocStructure(PDStructureTreeRoot root, TocBlock tocBlock) {
+            PDStructureElement toc = new PDStructureElement(StandardStructureTypes.TOC, root);
+            root.appendKid(toc);
+
+            List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
+            for (TocEntry entry : entries) {
+                PDStructureElement toci = new PDStructureElement("TOCI", toc);
+                toc.appendKid(toci);
+                PDStructureElement reference = new PDStructureElement("Reference", toci);
+                toci.appendKid(reference);
             }
         }
 
@@ -2376,6 +2491,9 @@ public final class A11yPdfDocument {
         }
 
         private record TocReferenceCheck(int nodeIndex, int maxDepth) {
+        }
+
+        private record TocEntry(int level, String text) {
         }
     }
 

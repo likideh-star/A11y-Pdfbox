@@ -11,9 +11,9 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 11
+- Done: 12
 - Partially Done: 2
-- Not Done: 2
+- Not Done: 1
 
 ## Detailed Milestone Status
 
@@ -31,7 +31,7 @@ Reference source: [task.md](task.md)
 | 10        | Lists and Nested List Semantics                       | Done           | Lists now support unordered and ordered markers (`ordered` + `start`), bullet style variants (`DISC`, `CIRCLE`, `SQUARE`, `DASH`, `CUSTOM`), nested list item structures in declarative/fluent/intermediate models, recursive nested rendering with pagination, and recursive structure-tree emission for `L/LI/Lbl/LBody`.                 |
 | 11        | Tables with Semantic Headers and Splitting            | Done           | Table rendering now uses wrapped cell text with dynamic row heights, robust cross-page splitting including over-tall row chunking, repeated headers on continued pages, and semantic structure-tree emission with `Table/THead/TBody/TR/TH/TD` tags covered by layout regressions.                                                          |
 | 12        | Figures and Image Flow Modes                          | Done           | Figure nodes now support flow modes (`INLINE`, `SPAN_ALL_COLUMNS`) across declarative/fluent/intermediate models; rendering loads real images when available, scales them to fit available width/height, falls back to placeholder frames when sources are missing, and includes pagination-aware flow behavior with dedicated regressions. |
-| 13        | TOC and Structural References                         | Not Done       | TOC generation and structural referencing are not implemented yet.                                                                                                                                                                                                                                                                          |
+| 13        | TOC and Structural References                         | Done           | TOC now renders heading-derived entries up to configured `maxDepth` with flow-aware pagination across columns/pages, and structure-tree output now emits `TOC` entries with nested `TOCI/Reference` nodes to preserve semantic references to document headings.                                                                 |
 | 14        | Artifact Handling and Page Chrome                     | Partially Done | Artifact marked-content marker exists; full header/footer/page-number rendering support is not complete.                                                                                                                                                                                                                                    |
 | 15        | External Compliance Verification and Regression Suite | Partially Done | Internal JUnit checks exist; external validator integration (e.g., veraPDF) and broader regression corpus are missing.                                                                                                                                                                                                                      |
 | 16        | Performance, Hardening, and Documentation             | Not Done       | No benchmarking/stress suite/contributor-focused hardening artifacts yet.                                                                                                                                                                                                                                                                   |

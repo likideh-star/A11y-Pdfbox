@@ -618,6 +618,44 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void buildBytes_toc_shouldRenderHeadingEntriesUpToMaxDepth() throws IOException {
+        byte[] pdf = A11yPdfDocument.builder()
+                .heading(1, "Top Heading")
+                .heading(2, "Section Heading")
+                .heading(3, "Deep Heading")
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("Outline"));
+            assertTrue(countOccurrences(extracted, "Top Heading") >= 2);
+            assertTrue(countOccurrences(extracted, "Section Heading") >= 2);
+            assertEquals(1, countOccurrences(extracted, "Deep Heading"));
+        }
+    }
+
+    @Test
+    void buildBytes_tocStructure_shouldContainTociAndReference() throws IOException {
+        byte[] pdf = A11yPdfDocument.builder()
+                .heading(1, "One")
+                .heading(2, "Two")
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            PDStructureTreeRoot structureTreeRoot = rendered.getDocumentCatalog().getStructureTreeRoot();
+            assertTrue(structureTreeRoot != null);
+            List<String> structureTypes = new ArrayList<>();
+            collectStructureTypes(structureTreeRoot, structureTypes);
+
+            assertTrue(structureTypes.contains("TOC"));
+            assertTrue(structureTypes.contains("TOCI"));
+            assertTrue(structureTypes.contains("Reference"));
+        }
+    }
+
+    @Test
     void buildBytes_mixedFlowParagraphWithPadding_shouldPaginate() throws IOException {
         String longText = "padded flow text ".repeat(1200);
         A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(6.0f, 8.0f, 18.0f, 10.0f, 14.0f, 6.0f);

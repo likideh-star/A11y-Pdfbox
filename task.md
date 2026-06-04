@@ -16,6 +16,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 10. Milestone 10: Done.
 11. Milestone 11: Done.
 12. Milestone 12: Done.
+13. Milestone 13: Done.
 
 ### Latest Completed Work
 
@@ -43,10 +44,11 @@ This document converts the PRD into execution milestones with concrete deliverab
 22. Milestone 10 regression coverage added for nested fluent lists, custom bullet markers, and nested declarative list rendering.
 23. Milestone 11 completed with semantic table structure tags (`Table/THead/TBody/TR/TH/TD`), wrapped table-cell rendering, robust row splitting across pages (including over-tall rows), and dedicated table layout regressions.
 24. Milestone 12 completed with figure flow modes (`INLINE`, `SPAN_ALL_COLUMNS`), image loading/scaling with graceful placeholder fallback, flow-aware pagination behavior in multi-column layout, and dedicated layout regressions including declarative flow-mode parsing.
+25. Milestone 13 completed with TOC entry generation from heading nodes, `maxDepth` filtering, flow-aware TOC pagination in multi-column layout, and semantic structure output for `TOC/TOCI/Reference` with dedicated regression coverage.
 
 ### Next Focus
 
-1. Continue with Milestone 13 TOC and structural references.
+1. Continue with Milestone 14 artifact handling and page chrome.
 
 ## Planning Principles
 
