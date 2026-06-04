@@ -31,10 +31,12 @@ This document converts the PRD into execution milestones with concrete deliverab
 14. Declarative visual example now includes an explicit ordered-list sample block for Milestone 10 validation scenarios.
 15. Ordered list rendering is implemented end-to-end (declarative parser/model/converter -> renderer), including `start` index handling and numeric marker output.
 16. Regression tests now verify ordered-list numeric markers for both fluent-builder and declarative entry paths.
+17. Milestone 9 hardening update: mixed-flow heading/paragraph rendering now applies box-model padding consistently and validates impossible horizontal padding as a hard failure in non-text-only render paths.
+18. Regression tests were added for Milestone 9 mixed-flow hardening (pagination with padded paragraph, and fail-fast validation for impossible heading box model).
 
 ### Next Focus
 
-1. Continue Milestone 10 by implementing nested list semantics and full `L/LI/Lbl/LBody` structural behavior.
+1. Finish Milestone 9 production sign-off by adding final article-style end-to-end examples and explicit verification artifacts for heading/paragraph stability.
 
 ## Planning Principles
 

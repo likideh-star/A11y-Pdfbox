@@ -6,12 +6,14 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
+import com.likide.a11y.pdf.validation.ValidationException;
 
 class A11yPdfDocumentLayoutTest {
 
@@ -306,5 +308,36 @@ class A11yPdfDocumentLayoutTest {
             assertTrue(extracted.contains("1. json first"));
             assertTrue(extracted.contains("2. json second"));
         }
+    }
+
+    @Test
+    void buildBytes_mixedFlowParagraphWithPadding_shouldPaginate() throws IOException {
+        String longText = "padded flow text ".repeat(1200);
+        A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(6.0f, 8.0f, 18.0f, 10.0f, 14.0f, 6.0f);
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 160.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .heading(2, "Milestone 9")
+                .paragraph(longText, boxModel)
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertTrue(rendered.getNumberOfPages() > 2);
+        }
+    }
+
+    @Test
+    void buildBytes_mixedFlowHeadingWithInvalidHorizontalPadding_shouldFailFast() {
+        A11yPdfDocument.BoxModel impossibleBox = new A11yPdfDocument.BoxModel(0.0f, 0.0f, 140.0f, 0.0f, 140.0f, 0.0f);
+
+        assertThrows(ValidationException.class, () -> A11yPdfDocument.builder()
+                .pageSize(220.0f, 160.0f)
+                .pageMargin(20.0f)
+                .heading(2, "Impossible heading box", impossibleBox)
+                .tableOfContents("Outline", 2)
+                .buildBytes());
     }
 }

@@ -920,14 +920,16 @@ public final class A11yPdfDocument {
             if (element instanceof Heading heading) {
                 float fontSize = 22.0f - (heading.level - 1) * 2.0f;
                 float leading = fontSize * heading.lineHeightMultiplier;
-                return wrapText(heading.text, contentWidth, fontSize * 0.55f).size() * leading
-                        + heading.boxModel.marginTop() + heading.boxModel.marginBottom() + 8.0f;
+            float resolvedContentWidth = resolveContentWidth(contentWidth, heading.boxModel);
+            return wrapText(heading.text, resolvedContentWidth, fontSize * 0.55f).size() * leading
+                + heading.boxModel.marginTop() + heading.boxModel.verticalPadding() + heading.boxModel.marginBottom() + 8.0f;
             }
             if (element instanceof Paragraph paragraph) {
                 float fontSize = 12.0f;
                 float leading = fontSize * paragraph.lineHeightMultiplier;
-                return wrapText(paragraph.text, contentWidth, fontSize * 0.5f).size() * leading
-                        + paragraph.boxModel.marginTop() + paragraph.boxModel.marginBottom();
+            float resolvedContentWidth = resolveContentWidth(contentWidth, paragraph.boxModel);
+            return wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f).size() * leading
+                + paragraph.boxModel.marginTop() + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom();
             }
             if (element instanceof ListBlock listBlock) {
                 return listBlock.items.size() * 14.4f
@@ -956,22 +958,26 @@ public final class A11yPdfDocument {
                 if (element instanceof Heading heading) {
                     float fontSize = 22.0f - (heading.level - 1) * 2.0f;
                     float leading = fontSize * heading.lineHeightMultiplier;
-                    y -= heading.boxModel.marginTop() + 6.0f;
-                    for (String line : wrapText(heading.text, contentWidth, fontSize * 0.55f)) {
-                        drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, x, y, line);
+                    float resolvedContentWidth = resolveContentWidth(contentWidth, heading.boxModel);
+                    float textX = x + heading.boxModel.paddingLeft();
+                    y -= heading.boxModel.marginTop() + heading.boxModel.paddingTop() + 6.0f;
+                    for (String line : wrapText(heading.text, resolvedContentWidth, fontSize * 0.55f)) {
+                        drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
                         y -= leading;
                     }
-                    y -= heading.boxModel.marginBottom();
+                    y -= heading.boxModel.paddingBottom() + heading.boxModel.marginBottom();
 
                 } else if (element instanceof Paragraph paragraph) {
                     float fontSize = 12.0f;
                     float leading = fontSize * paragraph.lineHeightMultiplier;
-                    y -= paragraph.boxModel.marginTop();
-                    for (String line : wrapText(paragraph.text, contentWidth, fontSize * 0.5f)) {
-                        drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, x, y, line);
+                    float resolvedContentWidth = resolveContentWidth(contentWidth, paragraph.boxModel);
+                    float textX = x + paragraph.boxModel.paddingLeft();
+                    y -= paragraph.boxModel.marginTop() + paragraph.boxModel.paddingTop();
+                    for (String line : wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f)) {
+                        drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
                         y -= leading;
                     }
-                    y -= paragraph.boxModel.marginBottom();
+                    y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
 
                 } else if (element instanceof ListBlock listBlock) {
                     float leading = 14.4f;
@@ -1098,11 +1104,12 @@ public final class A11yPdfDocument {
                 float activeColumnWidth) throws IOException {
             float fontSize = 22.0f - (heading.level - 1) * 2.0f;
             float leading = fontSize * heading.lineHeightMultiplier;
-            List<String> lines = wrapText(heading.text, activeColumnWidth, fontSize * 0.55f);
+            float resolvedContentWidth = resolveContentWidth(activeColumnWidth, heading.boxModel);
+            List<String> lines = wrapText(heading.text, resolvedContentWidth, fontSize * 0.55f);
 
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
-            float y = startY - heading.boxModel.marginTop() - 6.0f;
+            float y = startY - heading.boxModel.marginTop() - heading.boxModel.paddingTop() - 6.0f;
 
             for (String line : lines) {
                 if (y - leading < marginBottom) {
@@ -1115,15 +1122,16 @@ public final class A11yPdfDocument {
                 float x = activeColumns <= 1
                         ? marginLeft
                         : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                float textX = x + heading.boxModel.paddingLeft();
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, x, y, line);
+                    drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
                 }
                 y -= leading;
             }
 
-            y -= heading.boxModel.marginBottom();
+            y -= heading.boxModel.paddingBottom() + heading.boxModel.marginBottom();
             return new FlowCursor(page, columnIndex, y);
         }
 
@@ -1139,11 +1147,12 @@ public final class A11yPdfDocument {
                 float activeColumnWidth) throws IOException {
             float fontSize = 12.0f;
             float leading = fontSize * paragraph.lineHeightMultiplier;
-            List<String> lines = wrapText(paragraph.text, activeColumnWidth, fontSize * 0.5f);
+            float resolvedContentWidth = resolveContentWidth(activeColumnWidth, paragraph.boxModel);
+            List<String> lines = wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f);
 
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
-            float y = startY - paragraph.boxModel.marginTop();
+            float y = startY - paragraph.boxModel.marginTop() - paragraph.boxModel.paddingTop();
 
             for (String line : lines) {
                 if (y - leading < marginBottom) {
@@ -1156,15 +1165,16 @@ public final class A11yPdfDocument {
                 float x = activeColumns <= 1
                         ? marginLeft
                         : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                float textX = x + paragraph.boxModel.paddingLeft();
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, x, y, line);
+                    drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
                 }
                 y -= leading;
             }
 
-            y -= paragraph.boxModel.marginBottom();
+            y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
             return new FlowCursor(page, columnIndex, y);
         }
 
