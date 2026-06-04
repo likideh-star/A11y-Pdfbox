@@ -15,6 +15,7 @@ import com.likide.a11y.pdf.model.DeclarativeList;
 import com.likide.a11y.pdf.model.DeclarativeNode;
 import com.likide.a11y.pdf.model.DeclarativePageSettings;
 import com.likide.a11y.pdf.model.DeclarativeParagraph;
+import com.likide.a11y.pdf.model.DeclarativeSection;
 import com.likide.a11y.pdf.model.DeclarativeSemanticMetadata;
 import com.likide.a11y.pdf.model.DeclarativeTable;
 import com.likide.a11y.pdf.model.DeclarativeTableRow;
@@ -128,6 +129,9 @@ public final class JsonParser {
         if (node.has("family") || node.has("type")) {
             return parseCustomNode(node);
         }
+        if (node.has("section")) {
+            return parseSection(node.path("section"));
+        }
         if (node.has("maxDepth") || (node.has("title") && !node.has("text"))) {
             return parseToc(node);
         }
@@ -225,6 +229,16 @@ public final class JsonParser {
         }
         custom.semantic = parseSemanticMetadata(node.path("semantic"));
         return custom;
+    }
+
+    private static DeclarativeSection parseSection(JsonNode node) {
+        if (!node.isObject()) {
+            throw new JsonParseException("Node field 'section' must be an object");
+        }
+        DeclarativeSection section = new DeclarativeSection();
+        section.columns = integer(node, "columns");
+        section.columnGap = floating(node, "columnGap");
+        return section;
     }
 
     // -------------------------------------------------------------------------

@@ -173,4 +173,22 @@ class A11yPdfDocumentLayoutTest {
             assertEquals(blueprint.pageCount(), rendered.getNumberOfPages());
         }
     }
+
+    @Test
+    void buildBytes_mixedFlowLongParagraph_shouldPaginateInsteadOfClipping() throws IOException {
+        String longText = "long flow text ".repeat(1500);
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 160.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .heading(2, "Long mixed-flow section")
+                .paragraph(longText)
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertTrue(rendered.getNumberOfPages() > 2);
+        }
+    }
 }

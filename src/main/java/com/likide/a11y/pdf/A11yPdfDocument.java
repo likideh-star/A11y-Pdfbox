@@ -41,6 +41,7 @@ import com.likide.a11y.pdf.model.FluentHeadingNode;
 import com.likide.a11y.pdf.model.FluentListNode;
 import com.likide.a11y.pdf.model.FluentNode;
 import com.likide.a11y.pdf.model.FluentParagraphNode;
+import com.likide.a11y.pdf.model.FluentSectionNode;
 import com.likide.a11y.pdf.model.FluentTableNode;
 import com.likide.a11y.pdf.model.FluentTocNode;
 import com.likide.a11y.pdf.model.IntermediateBoxModel;
@@ -51,6 +52,7 @@ import com.likide.a11y.pdf.model.IntermediateHeading;
 import com.likide.a11y.pdf.model.IntermediateList;
 import com.likide.a11y.pdf.model.IntermediateNode;
 import com.likide.a11y.pdf.model.IntermediateParagraph;
+import com.likide.a11y.pdf.model.IntermediateSection;
 import com.likide.a11y.pdf.model.IntermediateTable;
 import com.likide.a11y.pdf.model.IntermediateTableRow;
 import com.likide.a11y.pdf.model.IntermediateTextStyle;
@@ -135,6 +137,8 @@ public final class A11yPdfDocument {
                     customNodeBuilder.attribute(entry.getKey(), entry.getValue());
                 }
                 customNodeBuilder.endCustomNode();
+            } else if (node instanceof IntermediateSection section) {
+                builder.sectionColumns(section.columns(), section.columnGap());
             } else {
                 throw new ValidationException(
                         "fromDeclarative(...) cannot materialize intermediate node yet: "
@@ -357,6 +361,17 @@ public final class A11yPdfDocument {
             return this;
         }
 
+        public Builder sectionColumns(int count, float gapPt) {
+            if (count < 1) {
+                throw new ValidationException("section columns must be >= 1");
+            }
+            if (gapPt < 0.0f) {
+                throw new ValidationException("section column gap must be >= 0");
+            }
+            elements.add(new SectionOverride(count, gapPt));
+            return this;
+        }
+
         public CustomNodeBuilder customNode(String family, String type) {
             if (family == null || family.isBlank()) {
                 throw new ValidationException("Custom node family must not be blank");
@@ -467,6 +482,8 @@ public final class A11yPdfDocument {
                     nodes.add(new FluentTocNode(tocBlock.title, tocBlock.maxDepth));
                 } else if (element instanceof CustomBlock customBlock) {
                     nodes.add(new FluentCustomNode(customBlock.family, customBlock.type, Map.copyOf(customBlock.attributes)));
+                } else if (element instanceof SectionOverride sectionOverride) {
+                    nodes.add(new FluentSectionNode(sectionOverride.columns, sectionOverride.columnGap));
                 }
             }
 
@@ -676,8 +693,20 @@ public final class A11yPdfDocument {
 
             PDPage page = addStructuredPage(doc);
             float y = pageHeight - marginTop;
+            int activeColumns = columns;
+            float activeColumnGap = columnGap;
+            int activeColumnIndex = 0;
 
             for (Element element : elements) {
+                if (element instanceof SectionOverride sectionOverride) {
+                    activeColumns = sectionOverride.columns;
+                    activeColumnGap = sectionOverride.columnGap;
+                    activeColumnIndex = 0;
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                    continue;
+                }
+
                 if (element instanceof ListBlock listBlock) {
                     RenderCursor cursor = renderListAcrossPages(
                             doc,
@@ -688,6 +717,7 @@ public final class A11yPdfDocument {
                             fontRuntimes);
                     page = cursor.page();
                     y = cursor.y();
+                            activeColumnIndex = 0;
                     continue;
                 }
 
@@ -702,15 +732,65 @@ public final class A11yPdfDocument {
                             fontRuntimes);
                     page = cursor.page();
                     y = cursor.y();
+                    activeColumnIndex = 0;
                     continue;
                 }
 
-                float needed = estimateHeight(element, contentWidth);
-                if (y - needed < marginBottom) {
-                    page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
+                float activeColumnWidth = activeColumns <= 1
+                        ? contentWidth
+                        : resolveColumnWidth(activeColumns, activeColumnGap);
+
+                if (element instanceof Heading heading) {
+                    FlowCursor cursor = renderHeadingAcrossFlow(
+                        doc,
+                        page,
+                        fontRuntimes,
+                        heading,
+                        activeColumnIndex,
+                        activeColumns,
+                        activeColumnGap,
+                        y,
+                        activeColumnWidth);
+                    page = cursor.page();
+                    activeColumnIndex = cursor.columnIndex();
+                    y = cursor.y();
+                    continue;
                 }
-                y = renderElement(doc, page, fontRuntimes, element, marginLeft, y, contentWidth);
+
+                if (element instanceof Paragraph paragraph) {
+                    FlowCursor cursor = renderParagraphAcrossFlow(
+                        doc,
+                        page,
+                        fontRuntimes,
+                        paragraph,
+                        activeColumnIndex,
+                        activeColumns,
+                        activeColumnGap,
+                        y,
+                        activeColumnWidth);
+                    page = cursor.page();
+                    activeColumnIndex = cursor.columnIndex();
+                    y = cursor.y();
+                    continue;
+                }
+
+                float needed = estimateHeight(element, activeColumnWidth);
+                if (y - needed < marginBottom) {
+                    if (activeColumns > 1 && activeColumnIndex + 1 < activeColumns) {
+                        activeColumnIndex++;
+                        y = pageHeight - marginTop;
+                    } else {
+                        page = addStructuredPage(doc);
+                        y = pageHeight - marginTop;
+                        activeColumnIndex = 0;
+                    }
+                }
+
+                float activeX = activeColumns <= 1
+                        ? marginLeft
+                        : resolveColumnX(activeColumnIndex, activeColumns, activeColumnGap);
+
+                y = renderElement(doc, page, fontRuntimes, element, activeX, y, activeColumnWidth);
             }
 
             buildStructureTree(doc);
@@ -719,7 +799,7 @@ public final class A11yPdfDocument {
 
         private boolean isTextOnlyFlow() {
             for (Element element : elements) {
-                if (!(element instanceof Heading) && !(element instanceof Paragraph)) {
+                if (!(element instanceof Heading) && !(element instanceof Paragraph) && !(element instanceof SectionOverride)) {
                     return false;
                 }
             }
@@ -930,6 +1010,96 @@ public final class A11yPdfDocument {
             return y;
         }
 
+        private FlowCursor renderHeadingAcrossFlow(
+                PDDocument doc,
+                PDPage startPage,
+                Map<String, FontRuntime> fontRuntimes,
+                Heading heading,
+                int startColumnIndex,
+                int activeColumns,
+                float activeColumnGap,
+                float startY,
+                float activeColumnWidth) throws IOException {
+            float fontSize = 22.0f - (heading.level - 1) * 2.0f;
+            float leading = fontSize * heading.lineHeightMultiplier;
+            List<String> lines = wrapText(heading.text, activeColumnWidth, fontSize * 0.55f);
+
+            PDPage page = startPage;
+            int columnIndex = startColumnIndex;
+            float y = startY - heading.boxModel.marginTop() - 6.0f;
+
+            for (String line : lines) {
+                if (y - leading < marginBottom) {
+                    FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                    page = next.page();
+                    columnIndex = next.columnIndex();
+                    y = next.y();
+                }
+
+                float x = activeColumns <= 1
+                        ? marginLeft
+                        : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, x, y, line);
+                }
+                y -= leading;
+            }
+
+            y -= heading.boxModel.marginBottom();
+            return new FlowCursor(page, columnIndex, y);
+        }
+
+        private FlowCursor renderParagraphAcrossFlow(
+                PDDocument doc,
+                PDPage startPage,
+                Map<String, FontRuntime> fontRuntimes,
+                Paragraph paragraph,
+                int startColumnIndex,
+                int activeColumns,
+                float activeColumnGap,
+                float startY,
+                float activeColumnWidth) throws IOException {
+            float fontSize = 12.0f;
+            float leading = fontSize * paragraph.lineHeightMultiplier;
+            List<String> lines = wrapText(paragraph.text, activeColumnWidth, fontSize * 0.5f);
+
+            PDPage page = startPage;
+            int columnIndex = startColumnIndex;
+            float y = startY - paragraph.boxModel.marginTop();
+
+            for (String line : lines) {
+                if (y - leading < marginBottom) {
+                    FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                    page = next.page();
+                    columnIndex = next.columnIndex();
+                    y = next.y();
+                }
+
+                float x = activeColumns <= 1
+                        ? marginLeft
+                        : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, x, y, line);
+                }
+                y -= leading;
+            }
+
+            y -= paragraph.boxModel.marginBottom();
+            return new FlowCursor(page, columnIndex, y);
+        }
+
+        private FlowCursor advanceTextFlow(PDDocument doc, PDPage page, int columnIndex, int activeColumns) {
+            if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
+                return new FlowCursor(page, columnIndex + 1, pageHeight - marginTop);
+            }
+            PDPage nextPage = addStructuredPage(doc);
+            return new FlowCursor(nextPage, 0, pageHeight - marginTop);
+        }
+
         private RenderCursor renderListAcrossPages(
                 PDDocument doc,
                 PDPage startPage,
@@ -1125,9 +1295,9 @@ public final class A11yPdfDocument {
                     marginBottom,
                     marginLeft);
 
-            float columnWidth = settings.columnWidth(columns, columnGap);
             float usableHeight = settings.usableHeight();
-            if (columnWidth <= 0.0f) {
+            float initialColumnWidth = settings.columnWidth(columns, columnGap);
+            if (initialColumnWidth <= 0.0f) {
                 throw new ValidationException("Page width and margins leave no room for content");
             }
             if (usableHeight <= 0.0f) {
@@ -1139,19 +1309,36 @@ public final class A11yPdfDocument {
             int pageIndex = 0;
             int columnIndex = 0;
             float currentY = settings.topMargin();
+            int activeColumns = columns;
+            float activeColumnGap = columnGap;
 
             for (int elementIndex = 0; elementIndex < elements.size(); elementIndex++) {
                 Element element = elements.get(elementIndex);
+                if (element instanceof SectionOverride sectionOverride) {
+                    activeColumns = sectionOverride.columns;
+                    activeColumnGap = sectionOverride.columnGap;
+                    pageIndex++;
+                    columnIndex = 0;
+                    currentY = settings.topMargin();
+                    diagnostics.add("section columns=" + activeColumns + " gap=" + activeColumnGap + " -> page=" + pageIndex);
+                    continue;
+                }
+
                 if (!(element instanceof Heading) && !(element instanceof Paragraph)) {
                     continue;
                 }
 
-                MeasuredBlock measuredBlock = measureBlock(element, columnWidth);
+                float activeColumnWidth = settings.columnWidth(activeColumns, activeColumnGap);
+                if (activeColumnWidth <= 0.0f) {
+                    throw new ValidationException("Section column settings leave no room for content");
+                }
+
+                MeasuredBlock measuredBlock = measureBlock(element, activeColumnWidth);
                 float requiredHeight = measuredBlock.height();
                 if (measuredBlock.keepWithNext() && elementIndex + 1 < elements.size()) {
                     Element nextElement = elements.get(elementIndex + 1);
                     if (nextElement instanceof Paragraph) {
-                        MeasuredBlock nextMeasured = measureBlock(nextElement, columnWidth);
+                        MeasuredBlock nextMeasured = measureBlock(nextElement, activeColumnWidth);
                         requiredHeight += Math.min(nextMeasured.height(), nextMeasured.lineHeight());
                     }
                 }
@@ -1161,6 +1348,7 @@ public final class A11yPdfDocument {
                             settings,
                             pageIndex,
                             columnIndex,
+                            activeColumns,
                             diagnostics,
                             measuredBlock.role(),
                             requiredHeight);
@@ -1179,6 +1367,7 @@ public final class A11yPdfDocument {
                             settings,
                             pageIndex,
                             columnIndex,
+                            activeColumns,
                             diagnostics,
                             measuredBlock.role(),
                             measuredBlock.height());
@@ -1190,16 +1379,18 @@ public final class A11yPdfDocument {
                                     " column=" + columnIndex + " y=" + currentY);
                 }
 
-                float x = settings.columnX(columnIndex, columns, columnGap);
+                float x = settings.columnX(columnIndex, activeColumns, activeColumnGap);
                 float contentX = x + measuredBlock.boxModel().paddingLeft();
                 float contentY = currentY + measuredBlock.boxModel().marginTop() + measuredBlock.boxModel().paddingTop();
                 blocks.add(new LayoutBlock(
                         measuredBlock.role(),
                         pageIndex,
                         columnIndex,
+                        activeColumns,
+                        activeColumnGap,
                         x,
                         currentY,
-                        columnWidth,
+                        activeColumnWidth,
                         measuredBlock.height(),
                         contentX,
                         contentY,
@@ -1216,19 +1407,20 @@ public final class A11yPdfDocument {
             }
 
             int pageCount = blocks.isEmpty() ? 1 : blocks.get(blocks.size() - 1).pageIndex() + 1;
-            return new LayoutBlueprint(List.copyOf(blocks), pageCount, columnWidth, columns, columnGap, settings, List.copyOf(diagnostics));
+            return new LayoutBlueprint(List.copyOf(blocks), pageCount, initialColumnWidth, columns, columnGap, settings, List.copyOf(diagnostics));
         }
 
         private LayoutCursor advanceLayoutCursor(
                 PageSettings settings,
                 int pageIndex,
                 int columnIndex,
+                int activeColumns,
                 List<String> diagnostics,
                 String role,
                 float requiredHeight) {
             int nextColumn = columnIndex + 1;
             int nextPage = pageIndex;
-            if (nextColumn >= columns) {
+            if (nextColumn >= activeColumns) {
                 nextColumn = 0;
                 nextPage++;
                 diagnostics.add(
@@ -1298,6 +1490,20 @@ public final class A11yPdfDocument {
                 throw new ValidationException("Element box model leaves no room for content");
             }
             return contentWidth;
+        }
+
+        private float resolveColumnWidth(int columnCount, float gap) {
+            float usableWidth = pageWidth - marginLeft - marginRight;
+            float width = (usableWidth - ((columnCount - 1) * gap)) / columnCount;
+            if (width <= 0.0f) {
+                throw new ValidationException("Section column settings leave no room for content");
+            }
+            return width;
+        }
+
+        private float resolveColumnX(int columnIndex, int columnCount, float gap) {
+            float columnWidth = resolveColumnWidth(columnCount, gap);
+            return marginLeft + (columnIndex * (columnWidth + gap));
         }
 
         private Map<String, FontRuntime> loadFontRuntimes(PDDocument doc) {
@@ -1621,7 +1827,17 @@ public final class A11yPdfDocument {
         }
     }
 
-    private sealed interface Element permits Heading, Paragraph, Figure, ListBlock, TableBlock, TocBlock, CustomBlock {
+    private sealed interface Element permits Heading, Paragraph, Figure, ListBlock, TableBlock, TocBlock, CustomBlock, SectionOverride {
+    }
+
+    private static final class SectionOverride implements Element {
+        private final int columns;
+        private final float columnGap;
+
+        private SectionOverride(int columns, float columnGap) {
+            this.columns = columns;
+            this.columnGap = columnGap;
+        }
     }
 
     private static final class Heading implements Element {
@@ -1770,6 +1986,8 @@ public final class A11yPdfDocument {
             String role,
             int pageIndex,
             int columnIndex,
+            int activeColumnCount,
+            float activeColumnGap,
             float x,
             float y,
             float width,
@@ -1840,6 +2058,9 @@ public final class A11yPdfDocument {
     }
 
     private record LayoutCursor(int pageIndex, int columnIndex, float currentY) {
+    }
+
+    private record FlowCursor(PDPage page, int columnIndex, float y) {
     }
 
     private record RenderCursor(PDPage page, float y) {

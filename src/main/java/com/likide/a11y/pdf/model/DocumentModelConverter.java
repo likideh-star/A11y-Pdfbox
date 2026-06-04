@@ -65,6 +65,15 @@ public final class DocumentModelConverter {
                         custom.type(),
                         Map.copyOf(custom.attributes()),
                         new SemanticMetadata("Custom", null, custom.family())));
+            } else if (node instanceof FluentSectionNode section) {
+                if (section.columns() < 1) {
+                    throw new ValidationException("section columns must be >= 1");
+                }
+                float sectionGap = Math.max(0.0f, section.columnGap());
+                nodes.add(new IntermediateSection(
+                        section.columns(),
+                        sectionGap,
+                        new SemanticMetadata("Sect", "layout", "layout")));
             }
         }
         return new IntermediateDocument(
@@ -205,6 +214,17 @@ public final class DocumentModelConverter {
                     custom.type,
                     Map.copyOf(custom.attributes),
                     resolveSemantic("Custom", custom.semantic, custom.family));
+        }
+        if (node instanceof DeclarativeSection section) {
+            int sectionColumns = section.columns == null ? 1 : section.columns;
+            if (sectionColumns < 1) {
+                throw new ValidationException("section columns must be >= 1");
+            }
+            float sectionGap = section.columnGap == null ? 0.0f : section.columnGap;
+            return new IntermediateSection(
+                    sectionColumns,
+                    Math.max(0.0f, sectionGap),
+                    new SemanticMetadata("Sect", "layout", "layout"));
         }
         throw new ValidationException("Unsupported declarative node type: " + node.getClass().getName());
     }
