@@ -1326,9 +1326,11 @@ public final class A11yPdfDocument {
                 float contentWidth,
                 TableBlock tableBlock,
             Map<String, FontRuntime> fontRuntimes) throws IOException {
-            float rowHeight = 18.0f;
             float headerFontSize = 10.0f;
             float bodyFontSize = 10.0f;
+            float headerLeading = headerFontSize * 1.2f;
+            float bodyLeading = bodyFontSize * 1.2f;
+            float cellPadding = 4.0f;
             BoxModel boxModel = tableBlock.boxModel;
             float tableX = x + boxModel.paddingLeft();
             float tableWidth = contentWidth - boxModel.horizontalPadding();
@@ -1340,29 +1342,87 @@ public final class A11yPdfDocument {
                     ? (tableBlock.rows.isEmpty() ? 1 : tableBlock.rows.get(0).size())
                     : tableBlock.headerCells.size();
             float colWidth = colCount > 0 ? tableWidth / colCount : tableWidth;
+            float wrapWidth = Math.max(1.0f, colWidth - (2.0f * cellPadding));
+
+            List<List<String>> wrappedHeader = new ArrayList<>();
+            int headerLines = 1;
+            for (int c = 0; c < colCount; c++) {
+                String headerText = c < tableBlock.headerCells.size() ? tableBlock.headerCells.get(c) : "";
+                List<String> lines = wrapText(headerText, wrapWidth, headerFontSize * 0.5f);
+                wrappedHeader.add(lines);
+                headerLines = Math.max(headerLines, lines.size());
+            }
+            float headerHeight = Math.max(18.0f, headerLines * headerLeading + (2.0f * cellPadding));
+
+            List<List<List<String>>> wrappedRows = new ArrayList<>();
+            List<Float> rowHeights = new ArrayList<>();
+            float maxBodyHeightPerPage = Math.max(
+                    bodyLeading + (2.0f * cellPadding),
+                    pageHeight - marginTop - marginBottom - headerHeight + 4.0f);
+            int maxLinesPerChunk = Math.max(1, (int) Math.floor((maxBodyHeightPerPage - (2.0f * cellPadding)) / bodyLeading));
+            for (List<String> row : tableBlock.rows) {
+                List<List<String>> wrappedCells = new ArrayList<>();
+                int maxLines = 1;
+                for (int c = 0; c < colCount; c++) {
+                    String cellText = c < row.size() ? row.get(c) : "";
+                    List<String> lines = wrapText(cellText, wrapWidth, bodyFontSize * 0.5f);
+                    wrappedCells.add(lines);
+                    maxLines = Math.max(maxLines, lines.size());
+                }
+                for (int lineStart = 0; lineStart < maxLines; lineStart += maxLinesPerChunk) {
+                    int lineEnd = Math.min(maxLines, lineStart + maxLinesPerChunk);
+                    List<List<String>> chunkCells = new ArrayList<>();
+                    int chunkMaxLines = 1;
+                    for (List<String> cellLines : wrappedCells) {
+                        int from = Math.min(lineStart, cellLines.size());
+                        int to = Math.min(lineEnd, cellLines.size());
+                        List<String> chunk = new ArrayList<>();
+                        if (from < to) {
+                            chunk.addAll(cellLines.subList(from, to));
+                        }
+                        if (chunk.isEmpty()) {
+                            chunk.add("");
+                        }
+                        chunkCells.add(chunk);
+                        chunkMaxLines = Math.max(chunkMaxLines, chunk.size());
+                    }
+                    wrappedRows.add(chunkCells);
+                    rowHeights.add(Math.max(18.0f, chunkMaxLines * bodyLeading + (2.0f * cellPadding)));
+                }
+            }
 
             PDPage page = startPage;
             float y = startY - boxModel.marginTop() - boxModel.paddingTop();
             int rowStart = 0;
 
             while (true) {
-                int maxBodyRowsThisPage = (int) Math.floor((y + 4.0f - marginBottom) / rowHeight) - 1;
-                if (maxBodyRowsThisPage < 0) {
-                    maxBodyRowsThisPage = 0;
-                }
-
-                if (maxBodyRowsThisPage == 0 && !tableBlock.rows.isEmpty()) {
+                float availableHeight = y + 4.0f - marginBottom;
+                if (availableHeight < headerHeight) {
                     page = addStructuredPage(doc);
                     y = pageHeight - marginTop;
                     continue;
                 }
 
-                int remaining = tableBlock.rows.size() - rowStart;
-                int rowsThisPage = Math.min(maxBodyRowsThisPage, remaining);
-                int totalRowsThisPage = rowsThisPage + 1; // header + body slice
+                float remainingHeight = availableHeight - headerHeight;
+                int rowsThisPage = 0;
+                float bodyHeightThisPage = 0.0f;
+                while (rowStart + rowsThisPage < rowHeights.size()) {
+                    float nextRowHeight = rowHeights.get(rowStart + rowsThisPage);
+                    if (bodyHeightThisPage + nextRowHeight > remainingHeight) {
+                        break;
+                    }
+                    bodyHeightThisPage += nextRowHeight;
+                    rowsThisPage++;
+                }
+
+                if (rowsThisPage == 0 && !rowHeights.isEmpty()) {
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                    continue;
+                }
 
                 float tableTop = y + 4.0f;
-                float tableHeight = totalRowsThisPage * rowHeight;
+                float tableHeight = headerHeight + bodyHeightThisPage;
                 float tableBottom = tableTop - tableHeight;
 
                 try (PDPageContentStream cs = new PDPageContentStream(
@@ -1373,49 +1433,63 @@ public final class A11yPdfDocument {
                         cs.moveTo(lineX, tableTop);
                         cs.lineTo(lineX, tableBottom);
                     }
-                    for (int i = 1; i < totalRowsThisPage; i++) {
-                        float lineY = tableTop - i * rowHeight;
+                    float gridY = tableTop - headerHeight;
+                    cs.moveTo(tableX, gridY);
+                    cs.lineTo(tableX + tableWidth, gridY);
+                    float runningBodyY = gridY;
+                    for (int i = 0; i < rowsThisPage - 1; i++) {
+                        runningBodyY -= rowHeights.get(rowStart + i);
+                        float lineY = runningBodyY;
                         cs.moveTo(tableX, lineY);
                         cs.lineTo(tableX + tableWidth, lineY);
                     }
                     cs.stroke();
 
-                    float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
-                    for (int i = 0; i < tableBlock.headerCells.size() && i < colCount; i++) {
-                        drawChunkedLine(
-                                cs,
-                            fontRuntimes,
-                            TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
-                            tableBlock.style,
-                            FontVariant.BOLD,
-                                headerFontSize,
-                                tableX + i * colWidth + 4.0f,
-                                tableTop - headerBaselineOffset,
-                                tableBlock.headerCells.get(i));
-                    }
-
-                    float bodyBaselineOffset = (rowHeight - bodyFontSize) / 2.0f + (bodyFontSize * 0.8f);
-                    for (int r = 0; r < rowsThisPage; r++) {
-                        List<String> row = tableBlock.rows.get(rowStart + r);
-                        float rowBaseline = tableTop - ((r + 1) * rowHeight) - bodyBaselineOffset;
-                        int cells = Math.min(row.size(), colCount);
-                        for (int c = 0; c < cells; c++) {
+                    for (int i = 0; i < colCount; i++) {
+                        List<String> headerLinesWrapped = wrappedHeader.get(i);
+                        float headerLineY = tableTop - cellPadding - headerFontSize;
+                        for (String line : headerLinesWrapped) {
                             drawChunkedLine(
                                     cs,
                                     fontRuntimes,
-                                    null,
+                                    TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
                                     tableBlock.style,
-                                    FontVariant.REGULAR,
-                                    bodyFontSize,
-                                    tableX + c * colWidth + 4.0f,
-                                    rowBaseline,
-                                    row.get(c));
+                                    FontVariant.BOLD,
+                                    headerFontSize,
+                                    tableX + i * colWidth + cellPadding,
+                                    headerLineY,
+                                    line);
+                            headerLineY -= headerLeading;
                         }
+                    }
+
+                    float rowTop = tableTop - headerHeight;
+                    for (int r = 0; r < rowsThisPage; r++) {
+                        float rowHeight = rowHeights.get(rowStart + r);
+                        List<List<String>> rowCells = wrappedRows.get(rowStart + r);
+                        for (int c = 0; c < colCount; c++) {
+                            List<String> cellLines = rowCells.get(c);
+                            float cellLineY = rowTop - cellPadding - bodyFontSize;
+                            for (String line : cellLines) {
+                                drawChunkedLine(
+                                        cs,
+                                        fontRuntimes,
+                                        null,
+                                        tableBlock.style,
+                                        FontVariant.REGULAR,
+                                        bodyFontSize,
+                                        tableX + c * colWidth + cellPadding,
+                                        cellLineY,
+                                        line);
+                                cellLineY -= bodyLeading;
+                            }
+                        }
+                        rowTop -= rowHeight;
                     }
                 }
 
                 rowStart += rowsThisPage;
-                if (rowStart >= tableBlock.rows.size()) {
+                if (rowStart >= rowHeights.size()) {
                     return new RenderCursor(page, tableBottom - boxModel.paddingBottom() - boxModel.marginBottom() - 8.0f);
                 }
 
@@ -1951,8 +2025,8 @@ public final class A11yPdfDocument {
                     root.appendKid(new PDStructureElement(StandardStructureTypes.Figure, root));
                 } else if (element instanceof ListBlock listBlock) {
                     appendListStructure(root, listBlock);
-                } else if (element instanceof TableBlock) {
-                    root.appendKid(new PDStructureElement(StandardStructureTypes.TABLE, root));
+                } else if (element instanceof TableBlock tableBlock) {
+                    appendTableStructure(root, tableBlock);
                 } else if (element instanceof TocBlock) {
                     root.appendKid(new PDStructureElement(StandardStructureTypes.TOC, root));
                 } else if (element instanceof CustomBlock) {
@@ -1983,6 +2057,34 @@ public final class A11yPdfDocument {
                 li.appendKid(body);
                 if (item.nestedList != null) {
                     appendListStructure(body, item.nestedList);
+                }
+            }
+        }
+
+        private void appendTableStructure(PDStructureTreeRoot root, TableBlock tableBlock) {
+            PDStructureElement table = new PDStructureElement(StandardStructureTypes.TABLE, root);
+            root.appendKid(table);
+
+            if (!tableBlock.headerCells.isEmpty()) {
+                PDStructureElement tHead = new PDStructureElement("THead", table);
+                table.appendKid(tHead);
+                PDStructureElement headerRow = new PDStructureElement(StandardStructureTypes.TR, tHead);
+                tHead.appendKid(headerRow);
+                for (int c = 0; c < tableBlock.headerCells.size(); c++) {
+                    PDStructureElement th = new PDStructureElement(StandardStructureTypes.TH, headerRow);
+                    headerRow.appendKid(th);
+                }
+            }
+
+            PDStructureElement tBody = new PDStructureElement("TBody", table);
+            table.appendKid(tBody);
+            for (List<String> row : tableBlock.rows) {
+                PDStructureElement tr = new PDStructureElement(StandardStructureTypes.TR, tBody);
+                tBody.appendKid(tr);
+                int cells = tableBlock.headerCells.isEmpty() ? row.size() : tableBlock.headerCells.size();
+                for (int c = 0; c < cells; c++) {
+                    PDStructureElement td = new PDStructureElement(StandardStructureTypes.TD, tr);
+                    tr.appendKid(td);
                 }
             }
         }

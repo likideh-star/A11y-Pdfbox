@@ -14,6 +14,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 8. Milestone 8: Done.
 9. Milestone 9: Done.
 10. Milestone 10: Done.
+11. Milestone 11: Done.
 
 ### Latest Completed Work
 
@@ -39,10 +40,11 @@ This document converts the PRD into execution milestones with concrete deliverab
 20. Final Milestone 9 regression verifies the article-style example renders end to end through JSON parsing, declarative conversion, and PDF generation.
 21. Milestone 10 implemented end to end: nested list item models, declarative parsing for structured list items and nested child lists, bullet style variants, recursive paginated list rendering, and recursive `L/LI/Lbl/LBody` structure-tree emission.
 22. Milestone 10 regression coverage added for nested fluent lists, custom bullet markers, and nested declarative list rendering.
+23. Milestone 11 completed with semantic table structure tags (`Table/THead/TBody/TR/TH/TD`), wrapped table-cell rendering, robust row splitting across pages (including over-tall rows), and dedicated table layout regressions.
 
 ### Next Focus
 
-1. Continue with Milestone 11 table semantics hardening (header associations and production-level splitting behavior).
+1. Continue with Milestone 12 figures and image flow modes (inline vs span-all-columns scaling and pagination behavior).
 
 ## Planning Principles
 

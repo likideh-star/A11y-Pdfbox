@@ -11,8 +11,8 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 9
-- Partially Done: 4
+- Done: 10
+- Partially Done: 3
 - Not Done: 2
 
 ## Detailed Milestone Status
@@ -29,7 +29,7 @@ Reference source: [task.md](task.md)
 | 8         | Font Families, Cascading Resolution, and Fallback     | Done           | Full style cascade is implemented (node -> parent -> document default), with expanded declarative/intermediate style fields, registered family resolution, variant fallback, and end-to-end multilingual fallback coverage using a real Unicode TTF path in integration tests.                                              |
 | 9         | Headings and Paragraphs Production-Ready              | Done           | Mixed-flow heading/paragraph rendering now honors box-model padding consistently (content width, x-offset, vertical padding), fails fast when horizontal padding leaves no content width, and is covered by a dedicated article-style declarative end-to-end regression example.                                            |
 | 10        | Lists and Nested List Semantics                       | Done           | Lists now support unordered and ordered markers (`ordered` + `start`), bullet style variants (`DISC`, `CIRCLE`, `SQUARE`, `DASH`, `CUSTOM`), nested list item structures in declarative/fluent/intermediate models, recursive nested rendering with pagination, and recursive structure-tree emission for `L/LI/Lbl/LBody`. |
-| 11        | Tables with Semantic Headers and Splitting            | Partially Done | Declarative/fluent table model conversion, visual rendering with borders, row pagination across pages, repeated headers on continued pages, and basic table tagging are implemented; deeper semantic header association and full production hardening are still pending.                                                    |
+| 11        | Tables with Semantic Headers and Splitting            | Done           | Table rendering now uses wrapped cell text with dynamic row heights, robust cross-page splitting including over-tall row chunking, repeated headers on continued pages, and semantic structure-tree emission with `Table/THead/TBody/TR/TH/TD` tags covered by layout regressions.                                         |
 | 12        | Figures and Image Flow Modes                          | Partially Done | Figure tagging + alt-text validation exist; inline/span-all-columns image flow/scaling rules are missing.                                                                                                                                                                                                                   |
 | 13        | TOC and Structural References                         | Not Done       | TOC generation and structural referencing are not implemented yet.                                                                                                                                                                                                                                                          |
 | 14        | Artifact Handling and Page Chrome                     | Partially Done | Artifact marked-content marker exists; full header/footer/page-number rendering support is not complete.                                                                                                                                                                                                                    |

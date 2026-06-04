@@ -2,9 +2,14 @@ package com.likide.a11y.pdf;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement;
+import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureNode;
+import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
 import org.apache.pdfbox.text.PDFTextStripper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -455,6 +460,86 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void buildBytes_tableLongCell_shouldWrapAndPreserveTailText() throws IOException {
+        String longCell = "table overflow ".repeat(120) + " TABLE_TAIL";
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(240.0f, 180.0f)
+                .pageMargin(20.0f)
+                .table()
+                .headerCell("Column")
+                .row()
+                .cell(longCell)
+                .endRow()
+                .endTable()
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("TABLE_TAIL"));
+        }
+    }
+
+    @Test
+    void buildBytes_tableAcrossPages_shouldRepeatHeaderText() throws IOException {
+        A11yPdfDocument.TableBuilder table = A11yPdfDocument.builder()
+                .pageSize(240.0f, 170.0f)
+                .pageMargin(20.0f)
+                .table();
+
+        table.headerCell("HDR_REPEAT")
+                .headerCell("Value");
+
+        for (int i = 0; i < 40; i++) {
+            table.row()
+                    .cell("row-" + i + " body text")
+                    .cell("value-" + i)
+                    .endRow();
+        }
+
+        byte[] pdf = table.endTable().buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertTrue(rendered.getNumberOfPages() > 1);
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(countOccurrences(extracted, "HDR_REPEAT") >= 2);
+        }
+    }
+
+    @Test
+    void buildBytes_tableStructure_shouldContainHeadBodyAndCellSemantics() throws IOException {
+        byte[] pdf = A11yPdfDocument.builder()
+                .table()
+                .headerCell("Name")
+                .headerCell("Role")
+                .row()
+                .cell("Alice")
+                .cell("Author")
+                .endRow()
+                .row()
+                .cell("Bob")
+                .cell("Reviewer")
+                .endRow()
+                .endTable()
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            PDStructureTreeRoot structureTreeRoot = rendered.getDocumentCatalog().getStructureTreeRoot();
+            assertTrue(structureTreeRoot != null);
+
+            List<String> structureTypes = new ArrayList<>();
+            collectStructureTypes(structureTreeRoot, structureTypes);
+
+            assertTrue(structureTypes.contains("Table"));
+            assertTrue(structureTypes.contains("THead"));
+            assertTrue(structureTypes.contains("TBody"));
+            assertTrue(structureTypes.contains("TR"));
+            assertTrue(structureTypes.contains("TH"));
+            assertTrue(structureTypes.contains("TD"));
+        }
+    }
+
+    @Test
     void buildBytes_mixedFlowParagraphWithPadding_shouldPaginate() throws IOException {
         String longText = "padded flow text ".repeat(1200);
         A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(6.0f, 8.0f, 18.0f, 10.0f, 14.0f, 6.0f);
@@ -483,5 +568,29 @@ class A11yPdfDocumentLayoutTest {
                 .heading(2, "Impossible heading box", impossibleBox)
                 .tableOfContents("Outline", 2)
                 .buildBytes());
+    }
+
+    private static int countOccurrences(String text, String token) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(token, index)) >= 0) {
+            count++;
+            index += token.length();
+        }
+        return count;
+    }
+
+    private static void collectStructureTypes(PDStructureNode node, List<String> types) {
+        if (node == null || node.getKids() == null) {
+            return;
+        }
+        for (Object kid : node.getKids()) {
+            if (kid instanceof PDStructureElement element) {
+                types.add(element.getStructureType());
+                collectStructureTypes(element, types);
+            } else if (kid instanceof PDStructureNode childNode) {
+                collectStructureTypes(childNode, types);
+            }
+        }
     }
 }
