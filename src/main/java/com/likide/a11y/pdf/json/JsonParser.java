@@ -178,6 +178,8 @@ public final class JsonParser {
             }
         }
         list.style = parseTextStyle(node.path("style"));
+        list.indentStyle = text(node, "indentStyle");
+        list.customIndentPt = floating(node, "customIndentPt");
         list.boxModel = parseBoxModel(node.path("boxModel"));
         list.semantic = parseSemanticMetadata(node.path("semantic"));
         return list;

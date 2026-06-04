@@ -46,6 +46,8 @@ public final class DocumentModelConverter {
                         List.copyOf(list.items()),
                         new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
                         null,
+                        null,
+                        null,
                         new SemanticMetadata("L", null, "core")));
             } else if (node instanceof FluentTableNode table) {
                 nodes.add(new IntermediateTable(
@@ -171,6 +173,8 @@ public final class DocumentModelConverter {
                     List.copyOf(list.items),
                     resolveBoxModel(list.boxModel),
                     resolveStyle(list.style),
+                    list.indentStyle,
+                    list.customIndentPt,
                     resolveSemantic("L", list.semantic, "core"));
         }
         if (node instanceof DeclarativeTable table) {

@@ -7,6 +7,8 @@ public final class DeclarativeList implements DeclarativeNode {
 
     public final List<String> items = new ArrayList<>();
     public DeclarativeTextStyle style;
+    public String indentStyle;
+    public Float customIndentPt;
     public DeclarativeBoxModel boxModel;
     public DeclarativeSemanticMetadata semantic;
 }

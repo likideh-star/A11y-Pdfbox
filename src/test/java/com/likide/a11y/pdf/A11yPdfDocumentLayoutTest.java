@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
@@ -189,6 +190,70 @@ class A11yPdfDocumentLayoutTest {
 
         try (PDDocument rendered = Loader.loadPDF(pdf)) {
             assertTrue(rendered.getNumberOfPages() > 2);
+        }
+    }
+
+    @Test
+    void buildBytes_longListItem_shouldWrapAndPreserveTailText() throws IOException {
+        String longItem = "segment".repeat(400) + " TAIL_MARKER";
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 180.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+            .heading(2, "List Section")
+                .unorderedList()
+                .item(longItem)
+                .item("short item")
+                .endList()
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("TAIL_MARKER"));
+        }
+    }
+
+    @Test
+    void buildBytes_longListItemWithAlignWithBulletIndent_shouldWrapAndPreserveTailText() throws IOException {
+        String longItem = "segment".repeat(400) + " ALIGN_TAIL";
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 180.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .heading(2, "List Section")
+                .unorderedList(A11yPdfDocument.BoxModel.none(), A11yPdfDocument.TextStyle.none(), A11yPdfDocument.ListIndentStyle.ALIGN_WITH_BULLET, 0.0f)
+                .item(longItem)
+                .endList()
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("ALIGN_TAIL"));
+        }
+    }
+
+    @Test
+    void buildBytes_longListItemWithCustomIndent_shouldWrapAndPreserveTailText() throws IOException {
+        String longItem = "segment".repeat(400) + " CUSTOM_TAIL";
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 180.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .heading(2, "List Section")
+                .unorderedList(A11yPdfDocument.BoxModel.none(), A11yPdfDocument.TextStyle.none(), A11yPdfDocument.ListIndentStyle.CUSTOM, 20.0f)
+                .item(longItem)
+                .endList()
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("CUSTOM_TAIL"));
         }
     }
 }
