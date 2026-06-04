@@ -7,6 +7,7 @@ public final class DeclarativeTable implements DeclarativeNode {
 
     public final List<String> headerCells = new ArrayList<>();
     public final List<DeclarativeTableRow> rows = new ArrayList<>();
+    public DeclarativeTextStyle style;
     public DeclarativeBoxModel boxModel;
     public DeclarativeSemanticMetadata semantic;
 }

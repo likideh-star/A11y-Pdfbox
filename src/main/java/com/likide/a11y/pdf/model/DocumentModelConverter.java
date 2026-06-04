@@ -45,12 +45,14 @@ public final class DocumentModelConverter {
                 nodes.add(new IntermediateList(
                         List.copyOf(list.items()),
                         new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
+                        null,
                         new SemanticMetadata("L", null, "core")));
             } else if (node instanceof FluentTableNode table) {
                 nodes.add(new IntermediateTable(
                         List.copyOf(table.headerCells()),
                         List.copyOf(table.rows()),
                         new IntermediateBoxModel(0, 0, 0, 0, 0, 0),
+                        null,
                         new SemanticMetadata("Table", null, "table")));
             } else if (node instanceof FluentTocNode toc) {
                 nodes.add(new IntermediateToc(
@@ -159,6 +161,7 @@ public final class DocumentModelConverter {
             return new IntermediateList(
                     List.copyOf(list.items),
                     resolveBoxModel(list.boxModel),
+                    resolveStyle(list.style),
                     resolveSemantic("L", list.semantic, "core"));
         }
         if (node instanceof DeclarativeTable table) {
@@ -177,6 +180,7 @@ public final class DocumentModelConverter {
                     List.copyOf(table.headerCells),
                     List.copyOf(rows),
                     resolveBoxModel(table.boxModel),
+                    resolveStyle(table.style),
                     resolveSemantic("Table", table.semantic, "table"));
         }
         if (node instanceof DeclarativeToc toc) {
@@ -221,7 +225,15 @@ public final class DocumentModelConverter {
             throw new ValidationException("lineHeight multiplier must be > 0");
         }
 
-        return new IntermediateTextStyle(lineHeight, resolveBoxModel(boxModel));
+        return new IntermediateTextStyle(
+                lineHeight,
+                resolveBoxModel(boxModel),
+                style == null ? null : style.fontFamily,
+                style == null ? null : style.fontVariant);
+    }
+
+    private static IntermediateTextStyle resolveStyle(DeclarativeTextStyle style) {
+        return resolveStyle(style, null);
     }
 
     private static IntermediateBoxModel resolveBoxModel(DeclarativeBoxModel boxModel) {

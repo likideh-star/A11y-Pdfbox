@@ -173,6 +173,7 @@ public final class JsonParser {
                 list.items.add(item.asText(""));
             }
         }
+        list.style = parseTextStyle(node.path("style"));
         list.boxModel = parseBoxModel(node.path("boxModel"));
         list.semantic = parseSemanticMetadata(node.path("semantic"));
         return list;
@@ -199,6 +200,7 @@ public final class JsonParser {
                 table.rows.add(row);
             }
         }
+        table.style = parseTextStyle(node.path("style"));
         table.boxModel = parseBoxModel(node.path("boxModel"));
         table.semantic = parseSemanticMetadata(node.path("semantic"));
         return table;
@@ -235,6 +237,8 @@ public final class JsonParser {
         }
         DeclarativeTextStyle style = new DeclarativeTextStyle();
         style.lineHeightMultiplier = floating(node, "lineHeightMultiplier");
+        style.fontFamily = text(node, "fontFamily");
+        style.fontVariant = text(node, "fontVariant");
         return style;
     }
 

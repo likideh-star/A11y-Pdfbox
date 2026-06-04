@@ -11,6 +11,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 5. Milestone 5: Done.
 6. Milestone 6: Done.
 7. Milestone 7: Done.
+8. Milestone 8: Done.
 
 ### Latest Completed Work
 
@@ -23,11 +24,13 @@ This document converts the PRD into execution milestones with concrete deliverab
 7. Pass-1 layout blueprint supports explicit heading/paragraph box-model fields (`marginTop`, paddings, `marginBottom`).
 8. Per-element `lineHeight` multipliers are implemented for headings and paragraphs.
 9. Pagination flow is verified across column overflow and page rollover transitions for text blueprint blocks.
+10. Milestone 8 foundation is implemented: document-level default font family registration, fallback font file registration, runtime variant resolution, and mixed-font chunked rendering.
+11. Full font style cascade is implemented (node -> parent -> document default), including style propagation for heading/paragraph/list/table nodes.
+12. Integration coverage now validates multilingual mixed-glyph rendering using a real Unicode TTF fallback path.
 
 ### Next Focus
 
-1. Begin Milestone 8 font family registry, cascading resolution, and fallback chunking.
-2. Continue Milestone 9 production hardening for heading/paragraph rendering behavior.
+1. Continue Milestone 9 production hardening for heading/paragraph rendering behavior.
 
 ## Planning Principles
 

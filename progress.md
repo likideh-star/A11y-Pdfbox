@@ -11,9 +11,9 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 6
+- Done: 7
 - Partially Done: 5
-- Not Done: 5
+- Not Done: 3
 
 ## Detailed Milestone Status
 
@@ -25,8 +25,8 @@ Reference source: [task.md](task.md)
 | 4         | Metadata, Catalog Setup, and Tagged PDF Skeleton      | Done           | /Lang, title, /DisplayDocTitle, /Tabs /S, XMP pdfUA marker, and structure root are implemented and test-covered.                                                                                                                                                                                          |
 | 5         | Pass 1 Layout Engine for Text Flow                    | Done           | Pass-1 analyzer for heading/paragraph flow is implemented with box-model resolution, line-height wrapping, paragraph height, keep-with-next, and deterministic `LayoutBlueprint` output; text-only rendering now reuses blueprint decisions without re-measure, and tests cover the full pass-1 contract. |
 | 6         | Multi-Column Layout Engine                            | Done           | Multi-column cursor progression and overflow across columns/pages are implemented with direct test coverage, and `LayoutBlueprint` now provides diagnostics traces for placement/advance events to support edge-case debugging and verification of transition behavior.                                   |
-| 7         | Pass 2 Renderer and MCID Infrastructure               | Not Done       | No pass-2 renderer replaying layout blueprint and no MCID mapping infrastructure yet.                                                                                                                                                                                                                     |
-| 8         | Font Families, Cascading Resolution, and Fallback     | Not Done       | No font family registry/cascade, variant fallback policy, or glyph chunking implementation yet.                                                                                                                                                                                                           |
+| 7         | Pass 2 Renderer and MCID Infrastructure               | Done           | Pass-2 text replay from `LayoutBlueprint` is implemented and covered, with MCID allocation and marked-content bindings validated by dedicated tests.                                                                                                                                                      |
+| 8         | Font Families, Cascading Resolution, and Fallback     | Done           | Full style cascade is implemented (node -> parent -> document default), with expanded declarative/intermediate style fields, registered family resolution, variant fallback, and end-to-end multilingual fallback coverage using a real Unicode TTF path in integration tests.                            |
 | 9         | Headings and Paragraphs Production-Ready              | Not Done       | Basic structure tagging exists, but production-grade layout/rendering behavior is not complete.                                                                                                                                                                                                           |
 | 10        | Lists and Nested List Semantics                       | Partially Done | L/LI/Lbl/LBody tags are emitted; nested semantics, style variants, and robust layout behavior are missing.                                                                                                                                                                                                |
 | 11        | Tables with Semantic Headers and Splitting            | Partially Done | Declarative/fluent table model conversion, visual rendering with borders, row pagination across pages, repeated headers on continued pages, and basic table tagging are implemented; deeper semantic header association and full production hardening are still pending.                                  |

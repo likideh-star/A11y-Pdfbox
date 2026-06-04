@@ -3,6 +3,7 @@ package com.likide.a11y.pdf;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -24,10 +25,13 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
 import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
+import com.likide.a11y.pdf.fonts.A11yFontFamily;
+import com.likide.a11y.pdf.fonts.FontResolutionException;
+import com.likide.a11y.pdf.fonts.FontRuntime;
+import com.likide.a11y.pdf.fonts.FontVariant;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DocumentModelConverter;
 import com.likide.a11y.pdf.model.FluentCustomNode;
@@ -90,22 +94,28 @@ public final class A11yPdfDocument {
                         heading.level(),
                         heading.text(),
                         fromIntermediateBoxModel(heading.style().boxModel()),
-                        heading.style().lineHeightMultiplier());
+                        heading.style().lineHeightMultiplier(),
+                        fromIntermediateStyle(heading.style(), FontVariant.BOLD));
             } else if (node instanceof IntermediateParagraph paragraph) {
                 builder.paragraph(
                         paragraph.text(),
                         fromIntermediateBoxModel(paragraph.style().boxModel()),
-                        paragraph.style().lineHeightMultiplier());
+                        paragraph.style().lineHeightMultiplier(),
+                        fromIntermediateStyle(paragraph.style(), FontVariant.REGULAR));
             } else if (node instanceof IntermediateFigure figure) {
                 builder.image(figure.pathOrId(), figure.altText(), figure.decorative());
             } else if (node instanceof IntermediateList list) {
-                ListBuilder listBuilder = builder.unorderedList(fromIntermediateBoxModel(list.boxModel()));
+                ListBuilder listBuilder = builder.unorderedList(
+                        fromIntermediateBoxModel(list.boxModel()),
+                        fromIntermediateStyle(list.style(), FontVariant.REGULAR));
                 for (String item : list.items()) {
                     listBuilder.item(item);
                 }
                 listBuilder.endList();
             } else if (node instanceof IntermediateTable table) {
-                TableBuilder tableBuilder = builder.table(fromIntermediateBoxModel(table.boxModel()));
+                TableBuilder tableBuilder = builder.table(
+                        fromIntermediateBoxModel(table.boxModel()),
+                        fromIntermediateStyle(table.style(), FontVariant.REGULAR));
                 for (String headerCell : table.headerCells()) {
                     tableBuilder.headerCell(headerCell);
                 }
@@ -145,6 +155,25 @@ public final class A11yPdfDocument {
                 boxModel.marginBottom());
     }
 
+    private static TextStyle fromIntermediateStyle(IntermediateTextStyle style, FontVariant defaultVariant) {
+        if (style == null) {
+            return TextStyle.of(null, defaultVariant);
+        }
+        return TextStyle.of(style.fontFamily(), parseFontVariant(style.fontVariant(), defaultVariant));
+    }
+
+    private static FontVariant parseFontVariant(String rawValue, FontVariant fallback) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return fallback;
+        }
+        String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        try {
+            return FontVariant.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
     public static final class Builder {
         private String lang = "en-US";
         private String title = "Untitled";
@@ -159,9 +188,16 @@ public final class A11yPdfDocument {
         private float marginLeft = DEFAULT_PAGE_MARGIN;
         private String artifactHeaderFooterPattern;
         private final List<String> preflightWarnings = new ArrayList<>();
+        private A11yFontFamily documentFontFamily = A11yFontFamily.helvetica();
+        private final Map<String, A11yFontFamily> fontFamilies = new LinkedHashMap<>();
+        private final List<Path> fallbackFontFiles = new ArrayList<>();
 
         private final List<Element> elements = new ArrayList<>();
         private int lastHeadingLevel = 0;
+
+        private Builder() {
+            fontFamilies.put("default", documentFontFamily);
+        }
 
         public Builder lang(String value) {
             this.lang = value;
@@ -224,7 +260,12 @@ public final class A11yPdfDocument {
         }
 
         public Builder paragraph(String text, BoxModel boxModel, float lineHeightMultiplier) {
-            elements.add(new Paragraph(text, boxModel, validateLineHeight(lineHeightMultiplier)));
+            elements.add(new Paragraph(text, boxModel, validateLineHeight(lineHeightMultiplier), TextStyle.of(null, FontVariant.REGULAR)));
+            return this;
+        }
+
+        public Builder paragraph(String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
+            elements.add(new Paragraph(text, boxModel, validateLineHeight(lineHeightMultiplier), normalizeStyle(style, FontVariant.REGULAR)));
             return this;
         }
 
@@ -248,7 +289,19 @@ public final class A11yPdfDocument {
                 throw new ValidationException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
             }
             lastHeadingLevel = level;
-            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier)));
+            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier), TextStyle.of(null, FontVariant.BOLD)));
+            return this;
+        }
+
+        public Builder heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
+            if (level < 1 || level > 6) {
+                throw new ValidationException("heading level must be between 1 and 6");
+            }
+            if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
+                throw new ValidationException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
+            }
+            lastHeadingLevel = level;
+            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier), normalizeStyle(style, FontVariant.BOLD)));
             return this;
         }
 
@@ -265,7 +318,13 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList(BoxModel boxModel) {
-            ListBlock block = new ListBlock(boxModel);
+            ListBlock block = new ListBlock(boxModel, TextStyle.of(null, FontVariant.REGULAR));
+            elements.add(block);
+            return new ListBuilder(this, block);
+        }
+
+        public ListBuilder unorderedList(BoxModel boxModel, TextStyle style) {
+            ListBlock block = new ListBlock(boxModel, normalizeStyle(style, FontVariant.REGULAR));
             elements.add(block);
             return new ListBuilder(this, block);
         }
@@ -275,7 +334,13 @@ public final class A11yPdfDocument {
         }
 
         public TableBuilder table(BoxModel boxModel) {
-            TableBlock block = new TableBlock(boxModel);
+            TableBlock block = new TableBlock(boxModel, TextStyle.of(null, FontVariant.REGULAR));
+            elements.add(block);
+            return new TableBuilder(this, block);
+        }
+
+        public TableBuilder table(BoxModel boxModel, TextStyle style) {
+            TableBlock block = new TableBlock(boxModel, normalizeStyle(style, FontVariant.REGULAR));
             elements.add(block);
             return new TableBuilder(this, block);
         }
@@ -309,6 +374,34 @@ public final class A11yPdfDocument {
             return this;
         }
 
+        public Builder defaultFontFamily(A11yFontFamily fontFamily) {
+            if (fontFamily == null) {
+                throw new FontResolutionException("Document default font family must not be null");
+            }
+            this.documentFontFamily = fontFamily;
+            this.fontFamilies.put("default", fontFamily);
+            return this;
+        }
+
+        public Builder registerFontFamily(String key, A11yFontFamily fontFamily) {
+            if (key == null || key.isBlank()) {
+                throw new FontResolutionException("Font family key must not be blank");
+            }
+            if (fontFamily == null) {
+                throw new FontResolutionException("Font family must not be null");
+            }
+            this.fontFamilies.put(key.trim(), fontFamily);
+            return this;
+        }
+
+        public Builder addFallbackFont(Path fontFile) {
+            if (fontFile == null) {
+                throw new FontResolutionException("Fallback font path must not be null");
+            }
+            this.fallbackFontFiles.add(fontFile);
+            return this;
+        }
+
         public List<String> preflightWarnings() {
             return List.copyOf(preflightWarnings);
         }
@@ -319,6 +412,13 @@ public final class A11yPdfDocument {
 
         public IntermediateDocument toIntermediateModel() {
             return DocumentModelConverter.fromFluent(toFluentSnapshot());
+        }
+
+        private TextStyle normalizeStyle(TextStyle style, FontVariant fallbackVariant) {
+            if (style == null) {
+                return TextStyle.of(null, fallbackVariant);
+            }
+            return TextStyle.of(style.fontFamilyKey(), style.variant() == null ? fallbackVariant : style.variant());
         }
 
         private FluentDocumentSnapshot toFluentSnapshot() {
@@ -336,7 +436,9 @@ public final class A11yPdfDocument {
                                             heading.boxModel.paddingRight(),
                                             heading.boxModel.paddingBottom(),
                                             heading.boxModel.paddingLeft(),
-                                            heading.boxModel.marginBottom()))));
+                                    heading.boxModel.marginBottom()),
+                                heading.style.fontFamilyKey,
+                                heading.style.variant.name())));
                 } else if (element instanceof Paragraph paragraph) {
                     nodes.add(new FluentParagraphNode(
                             paragraph.text,
@@ -348,7 +450,9 @@ public final class A11yPdfDocument {
                                             paragraph.boxModel.paddingRight(),
                                             paragraph.boxModel.paddingBottom(),
                                             paragraph.boxModel.paddingLeft(),
-                                            paragraph.boxModel.marginBottom()))));
+                                    paragraph.boxModel.marginBottom()),
+                                paragraph.style.fontFamilyKey,
+                                paragraph.style.variant.name())));
                 } else if (element instanceof Figure figure) {
                     nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
                 } else if (element instanceof ListBlock listBlock) {
@@ -528,9 +632,26 @@ public final class A11yPdfDocument {
                 return;
             }
             if (containsPotentiallyUnsupportedUnicode(value)) {
+                if (hasPotentialUnicodeFallback()) {
+                    return;
+                }
                 fatals.add(ValidationIssue.fatal("FONT_UNICODE_UNSUPPORTED", nodeIndex, nodeType,
-                        "Text contains characters outside WinAnsi coverage; configure Unicode-capable fonts before rendering"));
+                        "Text contains characters outside WinAnsi coverage; configure fallback fonts via addFallbackFont(...) or a Unicode-capable default font family"));
             }
+        }
+
+        private boolean hasPotentialUnicodeFallback() {
+            if (!fallbackFontFiles.isEmpty()) {
+                return true;
+            }
+            for (A11yFontFamily family : fontFamilies.values()) {
+                if (family != null
+                        && family.regular() != null
+                        && !family.regular().isStandard14()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private boolean containsPotentiallyUnsupportedUnicode(String value) {
@@ -543,11 +664,10 @@ public final class A11yPdfDocument {
         }
 
         private void renderToDocument(PDDocument doc) throws IOException {
-            PDType1Font bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
-            PDType1Font regular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            Map<String, FontRuntime> fontRuntimes = loadFontRuntimes(doc);
 
             if (isTextOnlyFlow()) {
-                renderTextOnlyFromLayoutBlueprint(doc, bold, regular);
+                renderTextOnlyFromLayoutBlueprint(doc, fontRuntimes);
                 maybeWriteArtifactMarker(doc, doc.getPage(0));
                 return;
             }
@@ -565,7 +685,7 @@ public final class A11yPdfDocument {
                             y,
                             marginLeft,
                             listBlock,
-                            regular);
+                            fontRuntimes);
                     page = cursor.page();
                     y = cursor.y();
                     continue;
@@ -579,8 +699,7 @@ public final class A11yPdfDocument {
                             marginLeft,
                             contentWidth,
                             tableBlock,
-                            bold,
-                            regular);
+                            fontRuntimes);
                     page = cursor.page();
                     y = cursor.y();
                     continue;
@@ -591,7 +710,7 @@ public final class A11yPdfDocument {
                     page = addStructuredPage(doc);
                     y = pageHeight - marginTop;
                 }
-                y = renderElement(doc, page, bold, regular, element, marginLeft, y, contentWidth);
+                y = renderElement(doc, page, fontRuntimes, element, marginLeft, y, contentWidth);
             }
 
             buildStructureTree(doc);
@@ -607,7 +726,7 @@ public final class A11yPdfDocument {
             return !elements.isEmpty();
         }
 
-        private void renderTextOnlyFromLayoutBlueprint(PDDocument doc, PDType1Font bold, PDType1Font regular) throws IOException {
+        private void renderTextOnlyFromLayoutBlueprint(PDDocument doc, Map<String, FontRuntime> fontRuntimes) throws IOException {
             LayoutBlueprint blueprint = analyzeLayout();
             List<PDPage> pages = new ArrayList<>();
             for (int i = 0; i < blueprint.pageCount(); i++) {
@@ -622,7 +741,6 @@ public final class A11yPdfDocument {
 
             for (LayoutBlock block : blueprint.blocks()) {
                 PDPage page = pages.get(block.pageIndex());
-                PDType1Font font = block.role().startsWith("H") ? bold : regular;
                 float lineY = pageHeight - block.contentY();
 
                 PDStructureElement structureElement = new PDStructureElement(block.role(), structureRoot);
@@ -635,11 +753,16 @@ public final class A11yPdfDocument {
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                     cs.beginMarkedContent(COSName.getPDFName(block.role()), PDPropertyList.create(markedContentProps));
                     for (String line : block.lines()) {
-                        cs.beginText();
-                        cs.setFont(font, block.fontSize());
-                        cs.newLineAtOffset(block.contentX(), lineY);
-                        cs.showText(line);
-                        cs.endText();
+                        drawChunkedLine(
+                                cs,
+                                fontRuntimes,
+                                block.style(),
+                                null,
+                                block.role().startsWith("H") ? FontVariant.BOLD : FontVariant.REGULAR,
+                                block.fontSize(),
+                                block.contentX(),
+                                lineY,
+                                line);
                         lineY -= block.lineHeight();
                     }
                     cs.endMarkedContent();
@@ -692,7 +815,7 @@ public final class A11yPdfDocument {
             return 24.0f;
         }
 
-        private float renderElement(PDDocument doc, PDPage page, PDType1Font bold, PDType1Font regular,
+        private float renderElement(PDDocument doc, PDPage page, Map<String, FontRuntime> fontRuntimes,
                 Element element, float x, float y, float contentWidth) throws IOException {
             try (PDPageContentStream cs = new PDPageContentStream(
                     doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
@@ -702,11 +825,7 @@ public final class A11yPdfDocument {
                     float leading = fontSize * heading.lineHeightMultiplier;
                     y -= heading.boxModel.marginTop() + 6.0f;
                     for (String line : wrapText(heading.text, contentWidth, fontSize * 0.55f)) {
-                        cs.beginText();
-                        cs.setFont(bold, fontSize);
-                        cs.newLineAtOffset(x, y);
-                        cs.showText(line);
-                        cs.endText();
+                        drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, x, y, line);
                         y -= leading;
                     }
                     y -= heading.boxModel.marginBottom();
@@ -716,11 +835,7 @@ public final class A11yPdfDocument {
                     float leading = fontSize * paragraph.lineHeightMultiplier;
                     y -= paragraph.boxModel.marginTop();
                     for (String line : wrapText(paragraph.text, contentWidth, fontSize * 0.5f)) {
-                        cs.beginText();
-                        cs.setFont(regular, fontSize);
-                        cs.newLineAtOffset(x, y);
-                        cs.showText(line);
-                        cs.endText();
+                        drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, x, y, line);
                         y -= leading;
                     }
                     y -= paragraph.boxModel.marginBottom();
@@ -728,11 +843,7 @@ public final class A11yPdfDocument {
                 } else if (element instanceof ListBlock listBlock) {
                     float leading = 14.4f;
                     for (String item : listBlock.items) {
-                        cs.beginText();
-                        cs.setFont(regular, 12.0f);
-                        cs.newLineAtOffset(x + 12.0f, y);
-                        cs.showText("- " + item);
-                        cs.endText();
+                        drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, x + 12.0f, y, "- " + item);
                         y -= leading;
                     }
                     y -= 8.0f;
@@ -766,22 +877,32 @@ public final class A11yPdfDocument {
 
                     float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
                     for (int i = 0; i < tableBlock.headerCells.size(); i++) {
-                        cs.beginText();
-                        cs.setFont(bold, headerFontSize);
-                        cs.newLineAtOffset(x + i * colWidth + 4.0f, tableTop - headerBaselineOffset);
-                        cs.showText(tableBlock.headerCells.get(i));
-                        cs.endText();
+                        drawChunkedLine(
+                                cs,
+                                fontRuntimes,
+                                TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
+                                tableBlock.style,
+                                FontVariant.BOLD,
+                                headerFontSize,
+                                x + i * colWidth + 4.0f,
+                                tableTop - headerBaselineOffset,
+                                tableBlock.headerCells.get(i));
                     }
                     float bodyBaselineOffset = (rowHeight - bodyFontSize) / 2.0f + (bodyFontSize * 0.8f);
                     int rowIndex = 1;
                     for (List<String> row : tableBlock.rows) {
                         float rowBaseline = tableTop - (rowIndex * rowHeight) - bodyBaselineOffset;
                         for (int i = 0; i < row.size(); i++) {
-                            cs.beginText();
-                            cs.setFont(regular, bodyFontSize);
-                            cs.newLineAtOffset(x + i * colWidth + 4.0f, rowBaseline);
-                            cs.showText(row.get(i));
-                            cs.endText();
+                            drawChunkedLine(
+                                    cs,
+                                    fontRuntimes,
+                                    null,
+                                    tableBlock.style,
+                                    FontVariant.REGULAR,
+                                    bodyFontSize,
+                                    x + i * colWidth + 4.0f,
+                                    rowBaseline,
+                                    row.get(i));
                         }
                         rowIndex++;
                     }
@@ -790,30 +911,19 @@ public final class A11yPdfDocument {
                 } else if (element instanceof TocBlock tocBlock) {
                     String label = tocBlock.title == null || tocBlock.title.isBlank()
                             ? "Table of Contents" : tocBlock.title;
-                    cs.beginText();
-                    cs.setFont(bold, 12.0f);
-                    cs.newLineAtOffset(x, y);
-                    cs.showText(label);
-                    cs.endText();
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, label);
                     y -= 20.0f;
 
                 } else if (element instanceof Figure figure) {
                     String label = figure.decorative ? "[Figure - decorative]"
                             : "[Figure: " + (figure.altText != null && !figure.altText.isBlank()
                                     ? figure.altText : figure.pathOrId) + "]";
-                    cs.beginText();
-                    cs.setFont(regular, 11.0f);
-                    cs.newLineAtOffset(x, y);
-                    cs.showText(label);
-                    cs.endText();
+                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, label);
                     y -= 20.0f;
 
                 } else if (element instanceof CustomBlock customBlock) {
-                    cs.beginText();
-                    cs.setFont(regular, 11.0f);
-                    cs.newLineAtOffset(x, y);
-                    cs.showText("[" + customBlock.family + " / " + customBlock.type + "]");
-                    cs.endText();
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y,
+                            "[" + customBlock.family + " / " + customBlock.type + "]");
                     y -= 20.0f;
                 }
             }
@@ -826,7 +936,7 @@ public final class A11yPdfDocument {
                 float startY,
                 float x,
                 ListBlock listBlock,
-                PDType1Font regular) throws IOException {
+            Map<String, FontRuntime> fontRuntimes) throws IOException {
             float fontSize = 12.0f;
             float leading = 14.4f;
             BoxModel boxModel = listBlock.boxModel;
@@ -857,11 +967,16 @@ public final class A11yPdfDocument {
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                     for (int i = 0; i < itemsThisPage; i++) {
-                        cs.beginText();
-                        cs.setFont(regular, fontSize);
-                        cs.newLineAtOffset(contentX + 12.0f, lineY);
-                        cs.showText("- " + listBlock.items.get(itemStart + i));
-                        cs.endText();
+                        drawChunkedLine(
+                                cs,
+                            fontRuntimes,
+                            null,
+                            listBlock.style,
+                            FontVariant.REGULAR,
+                                fontSize,
+                                contentX + 12.0f,
+                                lineY,
+                                "- " + listBlock.items.get(itemStart + i));
                         lineY -= leading;
                     }
                 }
@@ -883,8 +998,7 @@ public final class A11yPdfDocument {
                 float x,
                 float contentWidth,
                 TableBlock tableBlock,
-                PDType1Font bold,
-                PDType1Font regular) throws IOException {
+            Map<String, FontRuntime> fontRuntimes) throws IOException {
             float rowHeight = 18.0f;
             float headerFontSize = 10.0f;
             float bodyFontSize = 10.0f;
@@ -941,11 +1055,16 @@ public final class A11yPdfDocument {
 
                     float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
                     for (int i = 0; i < tableBlock.headerCells.size() && i < colCount; i++) {
-                        cs.beginText();
-                        cs.setFont(bold, headerFontSize);
-                        cs.newLineAtOffset(tableX + i * colWidth + 4.0f, tableTop - headerBaselineOffset);
-                        cs.showText(tableBlock.headerCells.get(i));
-                        cs.endText();
+                        drawChunkedLine(
+                                cs,
+                            fontRuntimes,
+                            TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
+                            tableBlock.style,
+                            FontVariant.BOLD,
+                                headerFontSize,
+                                tableX + i * colWidth + 4.0f,
+                                tableTop - headerBaselineOffset,
+                                tableBlock.headerCells.get(i));
                     }
 
                     float bodyBaselineOffset = (rowHeight - bodyFontSize) / 2.0f + (bodyFontSize * 0.8f);
@@ -954,11 +1073,16 @@ public final class A11yPdfDocument {
                         float rowBaseline = tableTop - ((r + 1) * rowHeight) - bodyBaselineOffset;
                         int cells = Math.min(row.size(), colCount);
                         for (int c = 0; c < cells; c++) {
-                            cs.beginText();
-                            cs.setFont(regular, bodyFontSize);
-                            cs.newLineAtOffset(tableX + c * colWidth + 4.0f, rowBaseline);
-                            cs.showText(row.get(c));
-                            cs.endText();
+                            drawChunkedLine(
+                                    cs,
+                                    fontRuntimes,
+                                    null,
+                                    tableBlock.style,
+                                    FontVariant.REGULAR,
+                                    bodyFontSize,
+                                    tableX + c * colWidth + 4.0f,
+                                    rowBaseline,
+                                    row.get(c));
                         }
                     }
                 }
@@ -1085,6 +1209,7 @@ public final class A11yPdfDocument {
                         measuredBlock.lineHeight(),
                         measuredBlock.lineHeightMultiplier(),
                         measuredBlock.fontSize(),
+                        measuredBlock.style(),
                         measuredBlock.keepWithNext(),
                         measuredBlock.lines()));
                 currentY += measuredBlock.height();
@@ -1132,6 +1257,7 @@ public final class A11yPdfDocument {
                         lineHeight,
                         heading.lineHeightMultiplier,
                         fontSize,
+                    heading.style,
                         heading.boxModel,
                         textHeight + heading.boxModel.marginTop() + heading.boxModel.verticalPadding() + heading.boxModel.marginBottom(),
                         true,
@@ -1151,6 +1277,7 @@ public final class A11yPdfDocument {
                     lineHeight,
                     paragraph.lineHeightMultiplier,
                     fontSize,
+                    paragraph.style,
                     paragraph.boxModel,
                     textHeight + paragraph.boxModel.marginTop() + paragraph.boxModel.verticalPadding() + paragraph.boxModel.marginBottom(),
                     false,
@@ -1171,6 +1298,74 @@ public final class A11yPdfDocument {
                 throw new ValidationException("Element box model leaves no room for content");
             }
             return contentWidth;
+        }
+
+        private Map<String, FontRuntime> loadFontRuntimes(PDDocument doc) {
+            Map<String, FontRuntime> runtimes = new LinkedHashMap<>();
+            for (Map.Entry<String, A11yFontFamily> entry : fontFamilies.entrySet()) {
+                runtimes.put(entry.getKey(), FontRuntime.load(doc, entry.getValue(), List.copyOf(fallbackFontFiles)));
+            }
+            if (!runtimes.containsKey("default")) {
+                runtimes.put("default", FontRuntime.load(doc, documentFontFamily, List.copyOf(fallbackFontFiles)));
+            }
+            return runtimes;
+        }
+
+        private FontSelection resolveFontSelection(
+                Map<String, FontRuntime> fontRuntimes,
+                TextStyle nodeStyle,
+                TextStyle parentStyle,
+                FontVariant fallbackVariant) {
+            String familyKey = resolveFontFamilyKey(nodeStyle, parentStyle);
+            FontRuntime runtime = fontRuntimes.getOrDefault(familyKey, fontRuntimes.get("default"));
+            FontVariant variant = resolveFontVariant(nodeStyle, parentStyle, fallbackVariant);
+            return new FontSelection(runtime, variant);
+        }
+
+        private String resolveFontFamilyKey(TextStyle nodeStyle, TextStyle parentStyle) {
+            if (nodeStyle != null && nodeStyle.fontFamilyKey != null && !nodeStyle.fontFamilyKey.isBlank()) {
+                return nodeStyle.fontFamilyKey;
+            }
+            if (parentStyle != null && parentStyle.fontFamilyKey != null && !parentStyle.fontFamilyKey.isBlank()) {
+                return parentStyle.fontFamilyKey;
+            }
+            return "default";
+        }
+
+        private FontVariant resolveFontVariant(TextStyle nodeStyle, TextStyle parentStyle, FontVariant fallbackVariant) {
+            if (nodeStyle != null && nodeStyle.variant != null) {
+                return nodeStyle.variant;
+            }
+            if (parentStyle != null && parentStyle.variant != null) {
+                return parentStyle.variant;
+            }
+            return fallbackVariant;
+        }
+
+        private void drawChunkedLine(
+                PDPageContentStream cs,
+                Map<String, FontRuntime> fontRuntimes,
+                TextStyle nodeStyle,
+                TextStyle parentStyle,
+                FontVariant fallbackVariant,
+                float fontSize,
+                float x,
+                float y,
+                String text) throws IOException {
+            FontSelection selection = resolveFontSelection(fontRuntimes, nodeStyle, parentStyle, fallbackVariant);
+            float cursorX = x;
+            for (FontRuntime.FontChunk chunk : selection.runtime().chunkText(text, selection.variant())) {
+                if (chunk.text().isEmpty()) {
+                    continue;
+                }
+                PDFont font = chunk.font();
+                cs.beginText();
+                cs.setFont(font, fontSize);
+                cs.newLineAtOffset(cursorX, y);
+                cs.showText(chunk.text());
+                cs.endText();
+                cursorX += font.getStringWidth(chunk.text()) / 1000.0f * fontSize;
+            }
         }
 
         private List<String> wrapText(String text, float availableWidth, float averageCharWidth) {
@@ -1434,12 +1629,14 @@ public final class A11yPdfDocument {
         private final String text;
         private final BoxModel boxModel;
         private final float lineHeightMultiplier;
+        private final TextStyle style;
 
-        private Heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier) {
+        private Heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
             this.level = level;
             this.text = text;
             this.boxModel = boxModel;
             this.lineHeightMultiplier = lineHeightMultiplier;
+            this.style = style;
         }
     }
 
@@ -1447,11 +1644,13 @@ public final class A11yPdfDocument {
         private final String text;
         private final BoxModel boxModel;
         private final float lineHeightMultiplier;
+        private final TextStyle style;
 
-        private Paragraph(String text, BoxModel boxModel, float lineHeightMultiplier) {
+        private Paragraph(String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
             this.text = text;
             this.boxModel = boxModel;
             this.lineHeightMultiplier = lineHeightMultiplier;
+            this.style = style;
         }
     }
 
@@ -1472,20 +1671,24 @@ public final class A11yPdfDocument {
 
     private static final class ListBlock implements Element {
         private final BoxModel boxModel;
+        private final TextStyle style;
         private final List<String> items = new ArrayList<>();
 
-        private ListBlock(BoxModel boxModel) {
+        private ListBlock(BoxModel boxModel, TextStyle style) {
             this.boxModel = boxModel;
+            this.style = style;
         }
     }
 
     private static final class TableBlock implements Element {
         private final BoxModel boxModel;
+        private final TextStyle style;
         private final List<String> headerCells = new ArrayList<>();
         private final List<List<String>> rows = new ArrayList<>();
 
-        private TableBlock(BoxModel boxModel) {
+        private TableBlock(BoxModel boxModel, TextStyle style) {
             this.boxModel = boxModel;
+            this.style = style;
         }
     }
 
@@ -1510,12 +1713,42 @@ public final class A11yPdfDocument {
         }
     }
 
+    public static final class TextStyle {
+        private final String fontFamilyKey;
+        private final FontVariant variant;
+
+        private TextStyle(String fontFamilyKey, FontVariant variant) {
+            this.fontFamilyKey = fontFamilyKey;
+            this.variant = variant;
+        }
+
+        public static TextStyle of(String fontFamilyKey, FontVariant variant) {
+            return new TextStyle(fontFamilyKey, variant);
+        }
+
+        public static TextStyle none() {
+            return new TextStyle(null, null);
+        }
+
+        public String fontFamilyKey() {
+            return fontFamilyKey;
+        }
+
+        public FontVariant variant() {
+            return variant;
+        }
+    }
+
+    private record FontSelection(FontRuntime runtime, FontVariant variant) {
+    }
+
     private record MeasuredBlock(
             String role,
             List<String> lines,
             float lineHeight,
             float lineHeightMultiplier,
             float fontSize,
+            TextStyle style,
             BoxModel boxModel,
             float height,
             boolean keepWithNext,
@@ -1549,6 +1782,7 @@ public final class A11yPdfDocument {
             float lineHeight,
             float lineHeightMultiplier,
             float fontSize,
+                TextStyle style,
             boolean keepWithNext,
             List<String> lines) {
     }
