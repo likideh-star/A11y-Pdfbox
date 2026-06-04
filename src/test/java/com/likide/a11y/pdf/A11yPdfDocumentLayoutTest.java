@@ -117,6 +117,24 @@ class A11yPdfDocumentLayoutTest {
         assertEquals(1, blueprint.blocks().get(3).columnIndex());
         assertEquals(2, blueprint.blocks().get(4).pageIndex());
         assertEquals(0, blueprint.blocks().get(4).columnIndex());
+        assertTrue(blueprint.diagnostics().stream().anyMatch(line -> line.startsWith("advance ")));
+    }
+
+    @Test
+    void layoutBlueprint_shouldExposeCursorDiagnosticsForDenseFlow() {
+        A11yPdfDocument.LayoutBlueprint blueprint = A11yPdfDocument.builder()
+                .pageSize(220.0f, 70.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .paragraph("a", new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f))
+                .paragraph("b", new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f))
+                .paragraph("c", new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f))
+                .paragraph("d", new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f))
+                .paragraph("e", new A11yPdfDocument.BoxModel(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4.0f))
+                .layoutBlueprint();
+
+        assertTrue(blueprint.diagnostics().stream().anyMatch(line -> line.startsWith("place P page=0 column=0")));
+        assertTrue(blueprint.diagnostics().stream().anyMatch(line -> line.startsWith("advance ")));
     }
 
     @Test

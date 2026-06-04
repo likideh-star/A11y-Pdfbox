@@ -989,6 +989,7 @@ public final class A11yPdfDocument {
             }
 
             List<LayoutBlock> blocks = new ArrayList<>();
+            List<String> diagnostics = new ArrayList<>();
             int pageIndex = 0;
             int columnIndex = 0;
             float currentY = settings.topMargin();
@@ -1010,12 +1011,37 @@ public final class A11yPdfDocument {
                 }
 
                 if (currentY + requiredHeight > settings.topMargin() + usableHeight) {
-                    columnIndex++;
-                    if (columnIndex >= columns) {
-                        columnIndex = 0;
-                        pageIndex++;
-                    }
-                    currentY = settings.topMargin();
+                    LayoutCursor cursor = advanceLayoutCursor(
+                            settings,
+                            pageIndex,
+                            columnIndex,
+                            diagnostics,
+                            measuredBlock.role(),
+                            requiredHeight);
+                    pageIndex = cursor.pageIndex();
+                    columnIndex = cursor.columnIndex();
+                    currentY = cursor.currentY();
+                }
+
+                diagnostics.add(
+                        "place " + measuredBlock.role() + " page=" + pageIndex +
+                                " column=" + columnIndex + " y=" + currentY +
+                                " height=" + measuredBlock.height());
+
+                if (currentY + measuredBlock.height() > settings.topMargin() + usableHeight) {
+                    LayoutCursor cursor = advanceLayoutCursor(
+                            settings,
+                            pageIndex,
+                            columnIndex,
+                            diagnostics,
+                            measuredBlock.role(),
+                            measuredBlock.height());
+                    pageIndex = cursor.pageIndex();
+                    columnIndex = cursor.columnIndex();
+                    currentY = cursor.currentY();
+                    diagnostics.add(
+                            "place-after-advance " + measuredBlock.role() + " page=" + pageIndex +
+                                    " column=" + columnIndex + " y=" + currentY);
                 }
 
                 float x = settings.columnX(columnIndex, columns, columnGap);
@@ -1043,7 +1069,32 @@ public final class A11yPdfDocument {
             }
 
             int pageCount = blocks.isEmpty() ? 1 : blocks.get(blocks.size() - 1).pageIndex() + 1;
-            return new LayoutBlueprint(List.copyOf(blocks), pageCount, columnWidth, columns, columnGap, settings);
+            return new LayoutBlueprint(List.copyOf(blocks), pageCount, columnWidth, columns, columnGap, settings, List.copyOf(diagnostics));
+        }
+
+        private LayoutCursor advanceLayoutCursor(
+                PageSettings settings,
+                int pageIndex,
+                int columnIndex,
+                List<String> diagnostics,
+                String role,
+                float requiredHeight) {
+            int nextColumn = columnIndex + 1;
+            int nextPage = pageIndex;
+            if (nextColumn >= columns) {
+                nextColumn = 0;
+                nextPage++;
+                diagnostics.add(
+                        "advance page=" + pageIndex + "->" + nextPage +
+                                " column=" + columnIndex + "->" + nextColumn +
+                                " role=" + role + " requiredHeight=" + requiredHeight);
+            } else {
+                diagnostics.add(
+                        "advance column=" + columnIndex + "->" + nextColumn +
+                                " page=" + pageIndex +
+                                " role=" + role + " requiredHeight=" + requiredHeight);
+            }
+            return new LayoutCursor(nextPage, nextColumn, settings.topMargin());
         }
 
         private MeasuredBlock measureBlock(Element element, float availableWidth) {
@@ -1456,7 +1507,8 @@ public final class A11yPdfDocument {
             float columnWidth,
             int columnCount,
             float columnGap,
-            PageSettings pageSettings) {
+            PageSettings pageSettings,
+            List<String> diagnostics) {
     }
 
     public record LayoutBlock(
@@ -1529,6 +1581,9 @@ public final class A11yPdfDocument {
         float columnX(int columnIndex, int columnCount, float columnGap) {
             return leftMargin + (columnIndex * columnWidth(columnCount, columnGap)) + (columnIndex * columnGap);
         }
+    }
+
+    private record LayoutCursor(int pageIndex, int columnIndex, float currentY) {
     }
 
     private record RenderCursor(PDPage page, float y) {
