@@ -11,8 +11,8 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 7
-- Partially Done: 6
+- Done: 8
+- Partially Done: 5
 - Not Done: 2
 
 ## Detailed Milestone Status
@@ -27,7 +27,7 @@ Reference source: [task.md](task.md)
 | 6         | Multi-Column Layout Engine                            | Done           | Multi-column cursor progression and overflow across columns/pages are implemented with direct test coverage, and `LayoutBlueprint` now provides diagnostics traces for placement/advance events to support edge-case debugging and verification of transition behavior.                                   |
 | 7         | Pass 2 Renderer and MCID Infrastructure               | Done           | Pass-2 text replay from `LayoutBlueprint` is implemented and covered, with MCID allocation and marked-content bindings validated by dedicated tests.                                                                                                                                                      |
 | 8         | Font Families, Cascading Resolution, and Fallback     | Done           | Full style cascade is implemented (node -> parent -> document default), with expanded declarative/intermediate style fields, registered family resolution, variant fallback, and end-to-end multilingual fallback coverage using a real Unicode TTF path in integration tests.                            |
-| 9         | Headings and Paragraphs Production-Ready              | Partially Done | Mixed-flow heading/paragraph rendering now honors box-model padding consistently (content width, x-offset, vertical padding) with fail-fast validation when horizontal padding leaves no content width; final production sign-off artifacts/examples are still pending.                                   |
+| 9         | Headings and Paragraphs Production-Ready              | Done           | Mixed-flow heading/paragraph rendering now honors box-model padding consistently (content width, x-offset, vertical padding), fails fast when horizontal padding leaves no content width, and is covered by a dedicated article-style declarative end-to-end regression example.                            |
 | 10        | Lists and Nested List Semantics                       | Partially Done | List rendering now supports unordered and ordered markers (including declarative `ordered` + `start`), configurable continuation indentation modes (`ALIGN_WITH_BULLET`, `TWO_SPACE`, `CUSTOM`), and long-item wrapping/pagination hardening; nested `L/LI/Lbl/LBody` structures are still pending.      |
 | 11        | Tables with Semantic Headers and Splitting            | Partially Done | Declarative/fluent table model conversion, visual rendering with borders, row pagination across pages, repeated headers on continued pages, and basic table tagging are implemented; deeper semantic header association and full production hardening are still pending.                                  |
 | 12        | Figures and Image Flow Modes                          | Partially Done | Figure tagging + alt-text validation exist; inline/span-all-columns image flow/scaling rules are missing.                                                                                                                                                                                                 |

@@ -1,6 +1,7 @@
 package com.likide.a11y.pdf;
 
 import java.io.IOException;
+import java.io.InputStream;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -10,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
+import com.likide.a11y.pdf.json.JsonParser;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
@@ -307,6 +309,25 @@ class A11yPdfDocumentLayoutTest {
             String extracted = new PDFTextStripper().getText(rendered);
             assertTrue(extracted.contains("1. json first"));
             assertTrue(extracted.contains("2. json second"));
+        }
+    }
+
+    @Test
+    void fromDeclarative_articleStyleExample_shouldRenderAcrossMultiplePages() throws IOException {
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("examples/article-style.json")) {
+            assertTrue(in != null, "article-style example resource must be present");
+
+            DeclarativeDocument doc = JsonParser.parse(in);
+            byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
+                    .artifactHeaderFooter("Page %d of %d")
+                    .buildBytes();
+
+            try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                String extracted = new PDFTextStripper().getText(rendered);
+                assertTrue(extracted.contains("Section One"));
+                assertTrue(extracted.contains("Section Two"));
+                assertTrue(extracted.contains("Section Three"));
+            }
         }
     }
 
