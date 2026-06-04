@@ -177,6 +177,8 @@ public final class JsonParser {
                 list.items.add(item.asText(""));
             }
         }
+        list.ordered = bool(node, "ordered");
+        list.start = integer(node, "start");
         list.style = parseTextStyle(node.path("style"));
         list.indentStyle = text(node, "indentStyle");
         list.customIndentPt = floating(node, "customIndentPt");

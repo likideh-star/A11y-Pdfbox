@@ -48,6 +48,8 @@ public final class DocumentModelConverter {
                         null,
                         null,
                         null,
+                        list.ordered(),
+                        list.start(),
                         new SemanticMetadata("L", null, "core")));
             } else if (node instanceof FluentTableNode table) {
                 nodes.add(new IntermediateTable(
@@ -169,12 +171,19 @@ public final class DocumentModelConverter {
                     resolveSemantic("Figure", figure.semantic, "core"));
         }
         if (node instanceof DeclarativeList list) {
+            boolean ordered = list.ordered != null && list.ordered;
+            int start = list.start == null ? 1 : list.start;
+            if (start < 1) {
+                throw new ValidationException("Ordered list start must be >= 1");
+            }
             return new IntermediateList(
                     List.copyOf(list.items),
                     resolveBoxModel(list.boxModel),
                     resolveStyle(list.style),
                     list.indentStyle,
                     list.customIndentPt,
+                    ordered,
+                    start,
                     resolveSemantic("L", list.semantic, "core"));
         }
         if (node instanceof DeclarativeTable table) {

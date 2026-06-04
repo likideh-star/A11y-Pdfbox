@@ -108,7 +108,14 @@ public final class A11yPdfDocument {
             } else if (node instanceof IntermediateFigure figure) {
                 builder.image(figure.pathOrId(), figure.altText(), figure.decorative());
             } else if (node instanceof IntermediateList list) {
-                ListBuilder listBuilder = builder.unorderedList(
+                ListBuilder listBuilder = (list.ordered() != null && list.ordered())
+                    ? builder.orderedList(
+                        list.start() == null ? 1 : list.start(),
+                        fromIntermediateBoxModel(list.boxModel()),
+                        fromIntermediateStyle(list.style(), FontVariant.REGULAR),
+                        parseListIndentStyle(list.indentStyle()),
+                        list.customIndentPt() == null ? DEFAULT_CUSTOM_LIST_INDENT_PT : list.customIndentPt())
+                    : builder.unorderedList(
                         fromIntermediateBoxModel(list.boxModel()),
                         fromIntermediateStyle(list.style(), FontVariant.REGULAR),
                         parseListIndentStyle(list.indentStyle()),
@@ -343,13 +350,7 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList(BoxModel boxModel) {
-            ListBlock block = new ListBlock(
-                    boxModel,
-                    TextStyle.of(null, FontVariant.REGULAR),
-                    ListIndentStyle.TWO_SPACE,
-                    DEFAULT_CUSTOM_LIST_INDENT_PT);
-            elements.add(block);
-            return new ListBuilder(this, block);
+            return list(false, 1, boxModel, TextStyle.of(null, FontVariant.REGULAR), ListIndentStyle.TWO_SPACE, DEFAULT_CUSTOM_LIST_INDENT_PT);
         }
 
         public ListBuilder unorderedList(BoxModel boxModel, TextStyle style) {
@@ -357,17 +358,30 @@ public final class A11yPdfDocument {
         }
 
         public ListBuilder unorderedList(BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
+            return list(false, 1, boxModel, style, indentStyle, customIndentPt);
+        }
+
+        public ListBuilder orderedList(int start, BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
+            return list(true, start, boxModel, style, indentStyle, customIndentPt);
+        }
+
+        private ListBuilder list(boolean ordered, int start, BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
             if (indentStyle == null) {
                 throw new ValidationException("List indent style must not be null");
             }
             if (customIndentPt < 0.0f) {
                 throw new ValidationException("List custom indent must be >= 0");
             }
+            if (ordered && start < 1) {
+                throw new ValidationException("Ordered list start must be >= 1");
+            }
             ListBlock block = new ListBlock(
                     boxModel,
                     normalizeStyle(style, FontVariant.REGULAR),
                     indentStyle,
-                    customIndentPt);
+                    customIndentPt,
+                    ordered,
+                    start);
             elements.add(block);
             return new ListBuilder(this, block);
         }
@@ -510,7 +524,7 @@ public final class A11yPdfDocument {
                 } else if (element instanceof Figure figure) {
                     nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
                 } else if (element instanceof ListBlock listBlock) {
-                    nodes.add(new FluentListNode(List.copyOf(listBlock.items)));
+                    nodes.add(new FluentListNode(List.copyOf(listBlock.items), listBlock.ordered, listBlock.start));
                 } else if (element instanceof TableBlock tableBlock) {
                     List<IntermediateTableRow> rows = new ArrayList<>();
                     for (List<String> row : tableBlock.rows) {
@@ -964,20 +978,21 @@ public final class A11yPdfDocument {
                     float bulletX = x + 12.0f;
                     float availableTextWidth = contentWidth - 12.0f;
                     float averageCharWidth = 12.0f * 0.5f;
-                    float firstLineWidth = Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
+                    float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
                     float continuationWidth = switch (listBlock.indentStyle) {
                         case ALIGN_WITH_BULLET -> availableTextWidth;
                         case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
                         case CUSTOM -> Math.max(1.0f, availableTextWidth - listBlock.customIndentPt);
                     };
                     float wrapWidth = Math.max(1.0f, Math.min(firstLineWidth, continuationWidth));
-                    for (String item : listBlock.items) {
+                    for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
+                        String item = listBlock.items.get(itemIndex);
                         List<String> lines = wrapText(item, wrapWidth, averageCharWidth);
                         for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                             String line = lines.get(lineIndex);
                             float lineX = bulletX;
                             if (lineIndex == 0) {
-                                line = "- " + line;
+                                line = listItemPrefix(listBlock, itemIndex) + line;
                             } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
                                 line = "  " + line;
                             } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
@@ -1179,7 +1194,7 @@ public final class A11yPdfDocument {
             }
 
             float averageCharWidth = fontSize * 0.5f;
-            float firstLineWidth = Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
+            float firstLineWidth = Math.max(1.0f, availableTextWidth - maxListPrefixWidth(listBlock));
             float continuationWidth = switch (listBlock.indentStyle) {
                 case ALIGN_WITH_BULLET -> availableTextWidth;
                 case TWO_SPACE -> Math.max(1.0f, availableTextWidth - (2.0f * averageCharWidth));
@@ -1221,7 +1236,7 @@ public final class A11yPdfDocument {
 
                         float lineX = bulletX;
                         if (lineIndex == 0) {
-                            textLine = "- " + textLine;
+                            textLine = listItemPrefix(listBlock, itemStart) + textLine;
                         } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
                             textLine = "  " + textLine;
                         } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
@@ -1725,6 +1740,23 @@ public final class A11yPdfDocument {
             return parts;
         }
 
+        private String listItemPrefix(ListBlock listBlock, int itemIndex) {
+            if (!listBlock.ordered) {
+                return "- ";
+            }
+            return (listBlock.start + itemIndex) + ". ";
+        }
+
+        private float maxListPrefixWidth(ListBlock listBlock) {
+            float averageCharWidth = 12.0f * 0.5f;
+            if (!listBlock.ordered) {
+                return 2.0f * averageCharWidth;
+            }
+            int maxNumber = listBlock.start + Math.max(0, listBlock.items.size() - 1);
+            int markerChars = String.valueOf(maxNumber).length() + 2;
+            return markerChars * averageCharWidth;
+        }
+
         private void buildStructureTree(PDDocument doc) {
             PDDocumentCatalog catalog = doc.getDocumentCatalog();
             PDStructureTreeRoot root = new PDStructureTreeRoot();
@@ -2007,13 +2039,23 @@ public final class A11yPdfDocument {
         private final TextStyle style;
         private ListIndentStyle indentStyle;
         private float customIndentPt;
+        private final boolean ordered;
+        private final int start;
         private final List<String> items = new ArrayList<>();
 
-        private ListBlock(BoxModel boxModel, TextStyle style, ListIndentStyle indentStyle, float customIndentPt) {
+        private ListBlock(
+                BoxModel boxModel,
+                TextStyle style,
+                ListIndentStyle indentStyle,
+                float customIndentPt,
+                boolean ordered,
+                int start) {
             this.boxModel = boxModel;
             this.style = style;
             this.indentStyle = indentStyle;
             this.customIndentPt = customIndentPt;
+            this.ordered = ordered;
+            this.start = start;
         }
     }
 

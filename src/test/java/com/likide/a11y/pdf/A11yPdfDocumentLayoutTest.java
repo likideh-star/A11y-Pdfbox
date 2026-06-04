@@ -9,6 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
+import com.likide.a11y.pdf.model.DeclarativeDocument;
+import com.likide.a11y.pdf.model.DeclarativeHeading;
+import com.likide.a11y.pdf.model.DeclarativeList;
+
 class A11yPdfDocumentLayoutTest {
 
     @Test
@@ -254,6 +258,53 @@ class A11yPdfDocumentLayoutTest {
         try (PDDocument rendered = Loader.loadPDF(pdf)) {
             String extracted = new PDFTextStripper().getText(rendered);
             assertTrue(extracted.contains("CUSTOM_TAIL"));
+        }
+    }
+
+    @Test
+    void buildBytes_orderedList_shouldRenderNumericMarkers() throws IOException {
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(260.0f, 220.0f)
+                .pageMargin(20.0f)
+                .heading(2, "Ordered List")
+                .orderedList(1, A11yPdfDocument.BoxModel.none(), A11yPdfDocument.TextStyle.none(), A11yPdfDocument.ListIndentStyle.TWO_SPACE, 12.0f)
+                .item("first step")
+                .item("second step")
+                .endList()
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("1. first step"));
+            assertTrue(extracted.contains("2. second step"));
+        }
+    }
+
+    @Test
+    void fromDeclarative_orderedList_shouldRenderNumericMarkers() throws IOException {
+        DeclarativeDocument doc = new DeclarativeDocument();
+
+        DeclarativeHeading heading = new DeclarativeHeading();
+        heading.level = 2;
+        heading.text = "Ordered Declarative";
+        doc.nodes.add(heading);
+
+        DeclarativeList list = new DeclarativeList();
+        list.ordered = true;
+        list.start = 1;
+        list.items.add("json first");
+        list.items.add("json second");
+        doc.nodes.add(list);
+
+        byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
+                .tableOfContents("Outline", 2)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("1. json first"));
+            assertTrue(extracted.contains("2. json second"));
         }
     }
 }

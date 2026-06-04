@@ -91,6 +91,23 @@
         "customIndentPt": 20.0
     },
     {
+      "items": [
+        "Ordered Item 1: gather requirements",
+        "Ordered Item 2: implement solution",
+        "Ordered Item 3: validate output",
+        "Ordered Item 4: document findings",
+        "Ordered Item 5: share with team",
+        "Ordered Item 6: gather feedback",
+        "Ordered Item 7: iterate on solution",
+        "Ordered Item 8: finalize implementation",
+        "Ordered Item 9: prepare report",
+        "Ordered Item 10: present results"
+      ],
+      "ordered": true,
+      "start": 1,
+      "indentStyle": "TWO_SPACE"
+    },
+    {
       "headerCells": ["Name", "Value"],
       "rows": [
         { "cells": ["Rows", "2"] },

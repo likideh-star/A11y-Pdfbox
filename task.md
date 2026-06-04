@@ -27,10 +27,14 @@ This document converts the PRD into execution milestones with concrete deliverab
 10. Milestone 8 foundation is implemented: document-level default font family registration, fallback font file registration, runtime variant resolution, and mixed-font chunked rendering.
 11. Full font style cascade is implemented (node -> parent -> document default), including style propagation for heading/paragraph/list/table nodes.
 12. Integration coverage now validates multilingual mixed-glyph rendering using a real Unicode TTF fallback path.
+13. List continuation indentation is now configurable (align-with-bullet, two-space, custom), and long list-item wrapping/pagination is hardened.
+14. Declarative visual example now includes an explicit ordered-list sample block for Milestone 10 validation scenarios.
+15. Ordered list rendering is implemented end-to-end (declarative parser/model/converter -> renderer), including `start` index handling and numeric marker output.
+16. Regression tests now verify ordered-list numeric markers for both fluent-builder and declarative entry paths.
 
 ### Next Focus
 
-1. Continue Milestone 9 production hardening for heading/paragraph rendering behavior.
+1. Continue Milestone 10 by implementing nested list semantics and full `L/LI/Lbl/LBody` structural behavior.
 
 ## Planning Principles
 
