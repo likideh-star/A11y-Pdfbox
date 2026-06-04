@@ -12,11 +12,13 @@ import com.likide.a11y.pdf.model.DeclarativeDocument;
 public class MainDeclarative {
 
     private static final String DEFAULT_JSON_RESOURCE = "examples/declarative-visual.json";
+    // private static final String DEFAULT_JSON_RESOURCE = "examples/article-style.json";
 
     public static void main(String[] args) {
         try {
             Files.createDirectories(Path.of("target"));
             Path output = Path.of("target", "visual-check-declarative.pdf");
+            // Path output = Path.of("target", "article-style.pdf");
 
             DeclarativeDocument doc = loadDeclarativeExample(args);
             byte[] pdf = A11yPdfDocument.fromDeclarative(doc)

@@ -202,6 +202,24 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void buildBytes_textOnlyOversizedParagraph_shouldPaginateAndPreserveTail() throws IOException {
+        String longText = "text only overflow ".repeat(2000) + " TEXT_ONLY_TAIL";
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(220.0f, 160.0f)
+                .pageMargin(20.0f)
+                .heading(2, "Section Overflow")
+                .paragraph(longText)
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertTrue(rendered.getNumberOfPages() > 2);
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("TEXT_ONLY_TAIL"));
+        }
+    }
+
+    @Test
     void buildBytes_longListItem_shouldWrapAndPreserveTailText() throws IOException {
         String longItem = "segment".repeat(400) + " TAIL_MARKER";
 

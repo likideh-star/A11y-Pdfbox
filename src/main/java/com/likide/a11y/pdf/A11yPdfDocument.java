@@ -851,9 +851,30 @@ public final class A11yPdfDocument {
         }
 
         private boolean isTextOnlyFlow() {
+            float usableHeight = pageHeight - marginTop - marginBottom;
+            int activeColumns = columns;
+            float activeColumnGap = columnGap;
+
             for (Element element : elements) {
+                if (element instanceof SectionOverride sectionOverride) {
+                    activeColumns = sectionOverride.columns;
+                    activeColumnGap = sectionOverride.columnGap;
+                    continue;
+                }
+
                 if (!(element instanceof Heading) && !(element instanceof Paragraph) && !(element instanceof SectionOverride)) {
                     return false;
+                }
+
+                if (element instanceof Heading || element instanceof Paragraph) {
+                    float activeColumnWidth = activeColumns <= 1
+                            ? pageWidth - marginLeft - marginRight
+                            : resolveColumnWidth(activeColumns, activeColumnGap);
+                    MeasuredBlock measured = measureBlock(element, activeColumnWidth);
+                    // Oversized text blocks need line-level continuation across pages/columns.
+                    if (measured.height() > usableHeight) {
+                        return false;
+                    }
                 }
             }
             return !elements.isEmpty();
