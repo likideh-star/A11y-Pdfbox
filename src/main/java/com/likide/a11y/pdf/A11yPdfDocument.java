@@ -19,8 +19,10 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDMetadata;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDMarkedContentReference;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
+import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
@@ -546,7 +548,6 @@ public final class A11yPdfDocument {
 
             if (isTextOnlyFlow()) {
                 renderTextOnlyFromLayoutBlueprint(doc, bold, regular);
-                buildStructureTree(doc);
                 maybeWriteArtifactMarker(doc, doc.getPage(0));
                 return;
             }
@@ -613,12 +614,26 @@ public final class A11yPdfDocument {
                 pages.add(addStructuredPage(doc));
             }
 
+            PDDocumentCatalog catalog = doc.getDocumentCatalog();
+            PDStructureTreeRoot structureRoot = new PDStructureTreeRoot();
+            catalog.setStructureTreeRoot(structureRoot);
+
+            int mcid = 0;
+
             for (LayoutBlock block : blueprint.blocks()) {
                 PDPage page = pages.get(block.pageIndex());
                 PDType1Font font = block.role().startsWith("H") ? bold : regular;
                 float lineY = pageHeight - block.contentY();
+
+                PDStructureElement structureElement = new PDStructureElement(block.role(), structureRoot);
+                structureRoot.appendKid(structureElement);
+
+                COSDictionary markedContentProps = new COSDictionary();
+                markedContentProps.setInt(COSName.MCID, mcid);
+
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    cs.beginMarkedContent(COSName.getPDFName(block.role()), PDPropertyList.create(markedContentProps));
                     for (String line : block.lines()) {
                         cs.beginText();
                         cs.setFont(font, block.fontSize());
@@ -627,7 +642,14 @@ public final class A11yPdfDocument {
                         cs.endText();
                         lineY -= block.lineHeight();
                     }
+                    cs.endMarkedContent();
                 }
+
+                PDMarkedContentReference mcr = new PDMarkedContentReference();
+                mcr.setPage(page);
+                mcr.setMCID(mcid);
+                structureElement.appendKid(mcr);
+                mcid++;
             }
         }
 

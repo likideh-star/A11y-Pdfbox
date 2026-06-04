@@ -41,7 +41,3 @@ Reference source: [task.md](task.md)
 - Default test run (`mvn test`) succeeds without adapter wiring shortcuts.
 - Adapter-backed run also succeeds explicitly using:
   - `mvn "-Da11y.pdf.adapter=com.likide.spec.PlannedFluentApiPdfLibraryAdapter" test`
-
-## Next Recommended Milestone
-
-- Start Milestone 7 pass-2 renderer and MCID wiring.

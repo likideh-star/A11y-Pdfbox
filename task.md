@@ -10,6 +10,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 4. Milestone 4: Done.
 5. Milestone 5: Done.
 6. Milestone 6: Done.
+7. Milestone 7: Done.
 
 ### Latest Completed Work
 
@@ -25,8 +26,8 @@ This document converts the PRD into execution milestones with concrete deliverab
 
 ### Next Focus
 
-1. Continue Milestone 6 hardening with edge-case scenarios and debug diagnostics.
-2. Continue Milestone 7 pass-2 renderer work with MCID and structure binding enhancements.
+1. Begin Milestone 8 font family registry, cascading resolution, and fallback chunking.
+2. Continue Milestone 9 production hardening for heading/paragraph rendering behavior.
 
 ## Planning Principles
 
