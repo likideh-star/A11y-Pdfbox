@@ -1,9 +1,17 @@
 package com.likide.a11y.pdf;
 
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.imageio.ImageIO;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -540,6 +548,76 @@ class A11yPdfDocumentLayoutTest {
     }
 
     @Test
+    void buildBytes_inlineImageInColumns_shouldScaleAndKeepFlowText() throws IOException {
+        Path imagePath = createTempTestImage(1200, 800);
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(240.0f, 190.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .paragraph("before inline image")
+                .image(imagePath.toString(), "INLINE_IMAGE_ALT", false, A11yPdfDocument.FigureFlowMode.INLINE)
+                .paragraph("after inline image")
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            PDStructureTreeRoot structureTreeRoot = rendered.getDocumentCatalog().getStructureTreeRoot();
+            assertTrue(structureTreeRoot != null);
+            List<String> structureTypes = new ArrayList<>();
+            collectStructureTypes(structureTreeRoot, structureTypes);
+            assertTrue(structureTypes.contains("Figure"));
+
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("after"));
+        }
+    }
+
+    @Test
+    void buildBytes_spanAllColumnsImage_shouldPaginateWhenInsertedMidFlow() throws IOException {
+        Path imagePath = createTempTestImage(1400, 900);
+
+        byte[] pdf = A11yPdfDocument.builder()
+                .pageSize(240.0f, 170.0f)
+                .pageMargin(20.0f)
+                .columns(2, 8.0f)
+                .paragraph("column flow text ".repeat(120))
+                .image(imagePath.toString(), "SPAN_IMAGE_ALT", false, A11yPdfDocument.FigureFlowMode.SPAN_ALL_COLUMNS)
+                .paragraph("AFTER_SPAN_IMAGE")
+                .buildBytes();
+
+        try (PDDocument rendered = Loader.loadPDF(pdf)) {
+            assertTrue(rendered.getNumberOfPages() > 1);
+            String extracted = new PDFTextStripper().getText(rendered);
+            assertTrue(extracted.contains("[Figure: SPAN_IMAGE_ALT]"));
+            assertTrue(extracted.contains("AFTER_SPAN_IMAGE"));
+        }
+    }
+
+    @Test
+    void fromDeclarative_figureFlowMode_shouldAcceptSpanAllColumns() throws IOException {
+        String json = "{" +
+                "\"lang\":\"en-US\"," +
+                "\"title\":\"Flow Mode Test\"," +
+                "\"nodes\":[" +
+                "{\"text\":\"before\"}," +
+                "{\"pathOrId\":\"demo-figure\",\"altText\":\"Declarative span figure\",\"decorative\":false,\"flowMode\":\"SPAN_ALL_COLUMNS\"}," +
+                "{\"text\":\"after\"}" +
+                "]}";
+
+        try (InputStream in = new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8))) {
+            DeclarativeDocument doc = JsonParser.parse(in);
+            byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
+
+            try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                String extracted = new PDFTextStripper().getText(rendered);
+                assertTrue(extracted.contains("[Figure: Declarative span figure]"));
+                assertTrue(extracted.contains("before"));
+                assertTrue(extracted.contains("after"));
+            }
+        }
+    }
+
+    @Test
     void buildBytes_mixedFlowParagraphWithPadding_shouldPaginate() throws IOException {
         String longText = "padded flow text ".repeat(1200);
         A11yPdfDocument.BoxModel boxModel = new A11yPdfDocument.BoxModel(6.0f, 8.0f, 18.0f, 10.0f, 14.0f, 6.0f);
@@ -592,5 +670,22 @@ class A11yPdfDocumentLayoutTest {
                 collectStructureTypes(childNode, types);
             }
         }
+    }
+
+    private static Path createTempTestImage(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int r = (x * 255) / Math.max(1, width - 1);
+                int g = (y * 255) / Math.max(1, height - 1);
+                int b = 140;
+                image.setRGB(x, y, new Color(r, g, b).getRGB());
+            }
+        }
+
+        Path tempFile = Files.createTempFile("a11y-image-flow-", ".png");
+        ImageIO.write(image, "png", tempFile.toFile());
+        tempFile.toFile().deleteOnExit();
+        return tempFile;
     }
 }

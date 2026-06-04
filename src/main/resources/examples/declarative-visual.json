@@ -232,7 +232,20 @@
     {
       "pathOrId": "demo-figure",
       "altText": "Placeholder figure for declarative visual check",
-      "decorative": false
+      "decorative": false,
+      "flowMode": "INLINE"
+    },
+    {
+      "pathOrId": "coq.png",
+      "altText": "nice art of a colorful rooster with a blue plumage.",
+      "decorative": false,
+      "flowMode": "SPAN_ALL_COLUMNS"
+    },
+    {
+      "pathOrId": "src/main/resources/examples/coq.png",
+      "altText": "same rooster image loaded via explicit file path.",
+      "decorative": false,
+      "flowMode": "INLINE"
     }
   ]
 }

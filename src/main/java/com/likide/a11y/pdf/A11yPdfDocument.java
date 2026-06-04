@@ -1,14 +1,19 @@
 package com.likide.a11y.pdf;
 
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.imageio.ImageIO;
 
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
@@ -26,6 +31,8 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
 import com.likide.a11y.pdf.fonts.A11yFontFamily;
@@ -108,7 +115,11 @@ public final class A11yPdfDocument {
                         paragraph.style().lineHeightMultiplier(),
                         fromIntermediateStyle(paragraph.style(), FontVariant.REGULAR));
             } else if (node instanceof IntermediateFigure figure) {
-                builder.image(figure.pathOrId(), figure.altText(), figure.decorative());
+                builder.image(
+                        figure.pathOrId(),
+                        figure.altText(),
+                        figure.decorative(),
+                        parseFigureFlowMode(figure.flowMode()));
             } else if (node instanceof IntermediateList list) {
                 ListBuilder listBuilder = (list.ordered() != null && list.ordered())
                     ? builder.orderedList(
@@ -216,6 +227,18 @@ public final class A11yPdfDocument {
         }
     }
 
+    private static FigureFlowMode parseFigureFlowMode(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return FigureFlowMode.INLINE;
+        }
+        String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        try {
+            return FigureFlowMode.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return FigureFlowMode.INLINE;
+        }
+    }
+
     private static void addIntermediateListItems(ListBuilder listBuilder, List<IntermediateListItem> items) {
         for (IntermediateListItem item : items) {
             if (item == null) {
@@ -258,6 +281,11 @@ public final class A11yPdfDocument {
         SQUARE,
         DASH,
         CUSTOM
+    }
+
+    public enum FigureFlowMode {
+        INLINE,
+        SPAN_ALL_COLUMNS
     }
 
     public static final class Builder {
@@ -392,10 +420,14 @@ public final class A11yPdfDocument {
         }
 
         public Builder image(String pathOrId, String altText, boolean decorative) {
+            return image(pathOrId, altText, decorative, FigureFlowMode.INLINE);
+        }
+
+        public Builder image(String pathOrId, String altText, boolean decorative, FigureFlowMode flowMode) {
             if (!decorative && (altText == null || altText.isBlank())) {
                 throw new ValidationException("Image requires altText unless decorative=true");
             }
-            elements.add(new Figure(pathOrId, altText, decorative));
+            elements.add(new Figure(pathOrId, altText, decorative, flowMode == null ? FigureFlowMode.INLINE : flowMode));
             return this;
         }
 
@@ -613,7 +645,7 @@ public final class A11yPdfDocument {
                                 paragraph.style.fontFamilyKey,
                                 paragraph.style.variant.name())));
                 } else if (element instanceof Figure figure) {
-                    nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative));
+                    nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative, figure.flowMode.name()));
                 } else if (element instanceof ListBlock listBlock) {
                     nodes.add(new FluentListNode(
                             toFluentListItems(listBlock.items),
@@ -946,6 +978,24 @@ public final class A11yPdfDocument {
                         activeColumnGap,
                         y,
                         activeColumnWidth);
+                    page = cursor.page();
+                    activeColumnIndex = cursor.columnIndex();
+                    y = cursor.y();
+                    continue;
+                }
+
+                if (element instanceof Figure figure) {
+                    FlowCursor cursor = renderFigureAcrossFlow(
+                            doc,
+                            page,
+                            fontRuntimes,
+                            figure,
+                            activeColumnIndex,
+                            activeColumns,
+                            activeColumnGap,
+                            y,
+                            activeColumnWidth,
+                            contentWidth);
                     page = cursor.page();
                     activeColumnIndex = cursor.columnIndex();
                     y = cursor.y();
@@ -1296,6 +1346,162 @@ public final class A11yPdfDocument {
 
             y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
             return new FlowCursor(page, columnIndex, y);
+        }
+
+        private FlowCursor renderFigureAcrossFlow(
+                PDDocument doc,
+                PDPage startPage,
+                Map<String, FontRuntime> fontRuntimes,
+                Figure figure,
+                int startColumnIndex,
+                int activeColumns,
+                float activeColumnGap,
+                float startY,
+                float activeColumnWidth,
+                float fullContentWidth) throws IOException {
+            PDPage page = startPage;
+            int columnIndex = startColumnIndex;
+            float y = startY;
+
+            boolean spanAllColumns = figure.flowMode == FigureFlowMode.SPAN_ALL_COLUMNS && activeColumns > 1;
+            if (spanAllColumns && columnIndex != 0) {
+                FlowCursor next = advanceTextFlow(doc, page, activeColumns - 1, activeColumns);
+                page = next.page();
+                columnIndex = 0;
+                y = next.y();
+            }
+
+            float availableWidth = spanAllColumns ? fullContentWidth : activeColumnWidth;
+            float x = spanAllColumns
+                    ? marginLeft
+                    : (activeColumns <= 1 ? marginLeft : resolveColumnX(columnIndex, activeColumns, activeColumnGap));
+
+            FigureRenderPlan plan = buildFigureRenderPlan(doc, figure, availableWidth);
+            if (y - plan.totalHeight() < marginBottom) {
+                if (spanAllColumns) {
+                    FlowCursor next = advanceTextFlow(doc, page, activeColumns - 1, activeColumns);
+                    page = next.page();
+                    columnIndex = 0;
+                    y = next.y();
+                } else {
+                    FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                    page = next.page();
+                    columnIndex = next.columnIndex();
+                    y = next.y();
+                    x = activeColumns <= 1 ? marginLeft : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                }
+            }
+
+            float imageTop = y - 4.0f;
+            float imageBottom = imageTop - plan.imageHeight();
+            float imageX = x + (availableWidth - plan.imageWidth()) / 2.0f;
+
+            try (PDPageContentStream cs = new PDPageContentStream(
+                    doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                if (plan.image() != null) {
+                    cs.drawImage(plan.image(), imageX, imageBottom, plan.imageWidth(), plan.imageHeight());
+                } else {
+                    cs.addRect(imageX, imageBottom, plan.imageWidth(), plan.imageHeight());
+                    cs.stroke();
+                    String missingText = "[Figure source not found: " + (figure.pathOrId == null ? "" : figure.pathOrId) + "]";
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 9.0f, imageX + 4.0f, imageTop - 12.0f, missingText);
+                }
+
+                float captionY = imageBottom - 8.0f;
+                for (String line : wrapText(plan.label(), availableWidth, 10.0f * 0.5f)) {
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 10.0f, x, captionY, line);
+                    captionY -= 12.0f;
+                }
+            }
+
+            float nextY = imageBottom - 8.0f - plan.captionHeight();
+            if (spanAllColumns) {
+                columnIndex = 0;
+            }
+            return new FlowCursor(page, columnIndex, nextY);
+        }
+
+        private FigureRenderPlan buildFigureRenderPlan(PDDocument doc, Figure figure, float availableWidth) {
+            final float maxImageHeight = 220.0f;
+            final float placeholderWidth = Math.max(80.0f, Math.min(availableWidth, 180.0f));
+            final float placeholderHeight = Math.max(60.0f, Math.min(maxImageHeight, placeholderWidth * 0.6f));
+
+            PDImageXObject image = loadFigureImage(doc, figure.pathOrId);
+            float targetWidth = placeholderWidth;
+            float targetHeight = placeholderHeight;
+
+            if (image != null) {
+                float imageWidth = Math.max(1.0f, image.getWidth());
+                float imageHeight = Math.max(1.0f, image.getHeight());
+                float widthScale = availableWidth / imageWidth;
+                float heightScale = maxImageHeight / imageHeight;
+                float scale = Math.min(1.0f, Math.min(widthScale, heightScale));
+                targetWidth = Math.max(1.0f, imageWidth * scale);
+                targetHeight = Math.max(1.0f, imageHeight * scale);
+            }
+
+            String label = figureLabel(figure);
+            float captionHeight = Math.max(12.0f, wrapText(label, availableWidth, 10.0f * 0.5f).size() * 12.0f);
+            float totalHeight = 4.0f + targetHeight + 8.0f + captionHeight + 8.0f;
+            return new FigureRenderPlan(image, targetWidth, targetHeight, label, captionHeight, totalHeight);
+        }
+
+        private String figureLabel(Figure figure) {
+            if (figure.decorative) {
+                return "[Figure - decorative]";
+            }
+            String alt = figure.altText == null ? "" : figure.altText.trim();
+            if (!alt.isBlank()) {
+                return "[Figure: " + alt + "]";
+            }
+            String source = figure.pathOrId == null ? "" : figure.pathOrId;
+            return "[Figure: " + source + "]";
+        }
+
+        private PDImageXObject loadFigureImage(PDDocument doc, String pathOrId) {
+            if (pathOrId == null || pathOrId.isBlank()) {
+                return null;
+            }
+
+            try {
+                Path direct = Path.of(pathOrId);
+                if (Files.exists(direct)) {
+                    return PDImageXObject.createFromFileByContent(direct.toFile(), doc);
+                }
+            } catch (IOException | IllegalArgumentException ignored) {
+                return null;
+            }
+
+            try {
+                Path examplePath = Path.of("src", "main", "resources", "examples", pathOrId);
+                if (Files.exists(examplePath)) {
+                    return PDImageXObject.createFromFileByContent(examplePath.toFile(), doc);
+                }
+            } catch (IOException | IllegalArgumentException ignored) {
+                return null;
+            }
+
+            try (InputStream in = openFigureResource(pathOrId)) {
+                if (in == null) {
+                    return null;
+                }
+                BufferedImage bufferedImage = ImageIO.read(in);
+                if (bufferedImage == null) {
+                    return null;
+                }
+                return LosslessFactory.createFromImage(doc, bufferedImage);
+            } catch (IOException ignored) {
+                return null;
+            }
+        }
+
+        private InputStream openFigureResource(String pathOrId) {
+            ClassLoader classLoader = getClass().getClassLoader();
+            InputStream in = classLoader.getResourceAsStream(pathOrId);
+            if (in != null) {
+                return in;
+            }
+            return classLoader.getResourceAsStream("examples/" + pathOrId);
         }
 
         private FlowCursor advanceTextFlow(PDDocument doc, PDPage page, int columnIndex, int activeColumns) {
@@ -2362,17 +2568,16 @@ public final class A11yPdfDocument {
     }
 
     private static final class Figure implements Element {
-        @SuppressWarnings("unused")
         private final String pathOrId;
-        @SuppressWarnings("unused")
         private final String altText;
-        @SuppressWarnings("unused")
         private final boolean decorative;
+        private final FigureFlowMode flowMode;
 
-        private Figure(String pathOrId, String altText, boolean decorative) {
+        private Figure(String pathOrId, String altText, boolean decorative, FigureFlowMode flowMode) {
             this.pathOrId = pathOrId;
             this.altText = altText;
             this.decorative = decorative;
+            this.flowMode = flowMode;
         }
     }
 
@@ -2588,4 +2793,13 @@ public final class A11yPdfDocument {
 
     private record RenderCursor(PDPage page, float y) {
     }
+
+        private record FigureRenderPlan(
+            PDImageXObject image,
+            float imageWidth,
+            float imageHeight,
+            String label,
+            float captionHeight,
+            float totalHeight) {
+        }
 }

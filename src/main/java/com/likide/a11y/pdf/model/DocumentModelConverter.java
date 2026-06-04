@@ -40,6 +40,7 @@ public final class DocumentModelConverter {
                         figure.pathOrId(),
                         figure.altText(),
                         figure.decorative(),
+                        figure.flowMode(),
                         new SemanticMetadata("Figure", null, "core")));
             } else if (node instanceof FluentListNode list) {
                 nodes.add(new IntermediateList(
@@ -170,6 +171,7 @@ public final class DocumentModelConverter {
                     nullToEmpty(figure.pathOrId),
                     figure.altText,
                     decorative,
+                    figure.flowMode,
                     resolveSemantic("Figure", figure.semantic, "core"));
         }
         if (node instanceof DeclarativeList list) {

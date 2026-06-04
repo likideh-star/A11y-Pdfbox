@@ -166,6 +166,7 @@ public final class JsonParser {
         figure.pathOrId = text(node, "pathOrId");
         figure.altText = text(node, "altText");
         figure.decorative = bool(node, "decorative");
+        figure.flowMode = text(node, "flowMode");
         figure.semantic = parseSemanticMetadata(node.path("semantic"));
         return figure;
     }

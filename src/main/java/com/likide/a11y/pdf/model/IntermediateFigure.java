@@ -4,5 +4,6 @@ public record IntermediateFigure(
         String pathOrId,
         String altText,
         boolean decorative,
+        String flowMode,
         SemanticMetadata semantic) implements IntermediateNode {
 }
