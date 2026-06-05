@@ -15,8 +15,11 @@ import java.util.Map;
 
 import javax.imageio.ImageIO;
 
+import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSInteger;
 import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.cos.COSNull;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
@@ -302,6 +305,12 @@ public final class A11yPdfDocument {
         private float marginLeft = DEFAULT_PAGE_MARGIN;
         private String artifactHeaderFooterPattern;
         private final List<String> preflightWarnings = new ArrayList<>();
+        private int currentElementIndex = -1;
+        private PDPage currentRenderPage = null;
+        private final Map<PDPage, Integer> pageLocalMcidCounter = new LinkedHashMap<>();
+        private final List<MarkedContentRecord> markedContentRecords = new ArrayList<>();
+        private final Map<PDPage, Map<Integer, PDStructureElement>> mcidToStructElem = new LinkedHashMap<>();
+        private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
         private A11yFontFamily documentFontFamily = A11yFontFamily.helvetica();
         private final Map<String, A11yFontFamily> fontFamilies = new LinkedHashMap<>();
         private final List<Path> fallbackFontFiles = new ArrayList<>();
@@ -891,6 +900,13 @@ public final class A11yPdfDocument {
         }
 
         private void renderToDocument(PDDocument doc) throws IOException {
+            markedContentRecords.clear();
+            mcidToStructElem.clear();
+            pageLocalMcidCounter.clear();
+            figureBBoxes.clear();
+            currentElementIndex = -1;
+            currentRenderPage = null;
+
             Map<String, FontRuntime> fontRuntimes = loadFontRuntimes(doc);
 
             if (isTextOnlyFlow()) {
@@ -907,7 +923,10 @@ public final class A11yPdfDocument {
             float activeColumnGap = columnGap;
             int activeColumnIndex = 0;
 
-            for (Element element : elements) {
+            for (int elemIdx = 0; elemIdx < elements.size(); elemIdx++) {
+                Element element = elements.get(elemIdx);
+                currentElementIndex = elemIdx;
+
                 if (element instanceof SectionOverride sectionOverride) {
                     activeColumns = sectionOverride.columns;
                     activeColumnGap = sectionOverride.columnGap;
@@ -1126,7 +1145,15 @@ public final class A11yPdfDocument {
             PDPage page = new PDPage(new PDRectangle(pageWidth, pageHeight));
             page.getCOSObject().setItem(COSName.getPDFName("Tabs"), COSName.S);
             doc.addPage(page);
+            currentRenderPage = page;
+            pageLocalMcidCounter.put(page, 0);
             return page;
+        }
+
+        private int allocateMcid(PDPage page) {
+            int mcid = pageLocalMcidCounter.getOrDefault(page, 0);
+            pageLocalMcidCounter.put(page, mcid + 1);
+            return mcid;
         }
 
         private float estimateHeight(Element element, float contentWidth) {
@@ -1185,7 +1212,7 @@ public final class A11yPdfDocument {
                     float textX = x + heading.boxModel.paddingLeft();
                     y -= heading.boxModel.marginTop() + heading.boxModel.paddingTop() + 6.0f;
                     for (String line : wrapText(heading.text, resolvedContentWidth, fontSize * 0.55f)) {
-                        drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
+                        drawTaggedChunkedLine(cs, mapHeadingType(heading.level), fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
                         y -= leading;
                     }
                     y -= heading.boxModel.paddingBottom() + heading.boxModel.marginBottom();
@@ -1197,7 +1224,7 @@ public final class A11yPdfDocument {
                     float textX = x + paragraph.boxModel.paddingLeft();
                     y -= paragraph.boxModel.marginTop() + paragraph.boxModel.paddingTop();
                     for (String line : wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f)) {
-                        drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                        drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
                         y -= leading;
                     }
                     y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
@@ -1220,7 +1247,8 @@ public final class A11yPdfDocument {
                     float tableHeight = totalRows * rowHeight;
                     float tableBottom = tableTop - tableHeight;
 
-                    // Draw outer border and grid lines.
+                    // Draw outer border and grid lines wrapped as Artifact.
+                    cs.beginMarkedContent(COSName.getPDFName("Artifact"));
                     cs.addRect(x, tableBottom, contentWidth, tableHeight);
                     for (int i = 1; i < colCount; i++) {
                         float lineX = x + i * colWidth;
@@ -1233,11 +1261,13 @@ public final class A11yPdfDocument {
                         cs.lineTo(x + contentWidth, lineY);
                     }
                     cs.stroke();
+                    cs.endMarkedContent();
 
                     float headerBaselineOffset = (rowHeight - headerFontSize) / 2.0f + (headerFontSize * 0.8f);
                     for (int i = 0; i < tableBlock.headerCells.size(); i++) {
-                        drawChunkedLine(
+                        drawTaggedChunkedLine(
                                 cs,
+                            StandardStructureTypes.TH,
                                 fontRuntimes,
                                 TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
                                 tableBlock.style,
@@ -1252,8 +1282,9 @@ public final class A11yPdfDocument {
                     for (List<String> row : tableBlock.rows) {
                         float rowBaseline = tableTop - (rowIndex * rowHeight) - bodyBaselineOffset;
                         for (int i = 0; i < row.size(); i++) {
-                            drawChunkedLine(
+                            drawTaggedChunkedLine(
                                     cs,
+                                    StandardStructureTypes.TD,
                                     fontRuntimes,
                                     null,
                                     tableBlock.style,
@@ -1270,11 +1301,11 @@ public final class A11yPdfDocument {
                 } else if (element instanceof TocBlock tocBlock) {
                     String title = tocBlock.title == null || tocBlock.title.isBlank()
                             ? "Table of Contents" : tocBlock.title;
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
                     y -= 14.4f;
                     for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
                         String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
-                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
+                        drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
                         y -= 13.2f;
                     }
                     y -= 8.0f;
@@ -1283,11 +1314,11 @@ public final class A11yPdfDocument {
                     String label = figure.decorative ? "[Figure - decorative]"
                             : "[Figure: " + (figure.altText != null && !figure.altText.isBlank()
                                     ? figure.altText : figure.pathOrId) + "]";
-                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, label);
+                        drawTaggedChunkedLine(cs, StandardStructureTypes.Figure, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, label);
                     y -= 20.0f;
 
                 } else if (element instanceof CustomBlock customBlock) {
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y,
+                    drawTaggedChunkedLine(cs, "Sect", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y,
                             "[" + customBlock.family + " / " + customBlock.type + "]");
                     y -= 20.0f;
                 }
@@ -1329,7 +1360,7 @@ public final class A11yPdfDocument {
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawChunkedLine(cs, fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
+                    drawTaggedChunkedLine(cs, mapHeadingType(heading.level), fontRuntimes, heading.style, null, FontVariant.BOLD, fontSize, textX, y, line);
                 }
                 y -= leading;
             }
@@ -1372,7 +1403,7 @@ public final class A11yPdfDocument {
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
                 }
                 y -= leading;
             }
@@ -1429,20 +1460,35 @@ public final class A11yPdfDocument {
             float imageBottom = imageTop - plan.imageHeight();
             float imageX = x + (availableWidth - plan.imageWidth()) / 2.0f;
 
+            // Record bounding box for /BBox attribute on Figure structure element
+            if (currentElementIndex >= 0) {
+                figureBBoxes.put(currentElementIndex, new float[]{imageX, imageBottom, plan.imageWidth(), plan.imageHeight()});
+            }
+
             try (PDPageContentStream cs = new PDPageContentStream(
                     doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                 if (plan.image() != null) {
+                    int imgMcid = allocateMcid(page);
+                    if (currentElementIndex >= 0) {
+                        markedContentRecords.add(new MarkedContentRecord(currentElementIndex, page, imgMcid));
+                    }
+                    COSDictionary imgProps = new COSDictionary();
+                    imgProps.setInt(COSName.MCID, imgMcid);
+                    cs.beginMarkedContent(COSName.getPDFName(StandardStructureTypes.Figure), PDPropertyList.create(imgProps));
                     cs.drawImage(plan.image(), imageX, imageBottom, plan.imageWidth(), plan.imageHeight());
+                    cs.endMarkedContent();
                 } else {
+                    cs.beginMarkedContent(COSName.getPDFName("Artifact"));
                     cs.addRect(imageX, imageBottom, plan.imageWidth(), plan.imageHeight());
                     cs.stroke();
+                    cs.endMarkedContent();
                     String missingText = "[Figure source not found: " + (figure.pathOrId == null ? "" : figure.pathOrId) + "]";
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 9.0f, imageX + 4.0f, imageTop - 12.0f, missingText);
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.Figure, fontRuntimes, null, null, FontVariant.REGULAR, 9.0f, imageX + 4.0f, imageTop - 12.0f, missingText);
                 }
 
                 float captionY = imageBottom - 8.0f;
                 for (String line : wrapText(plan.label(), availableWidth, 10.0f * 0.5f)) {
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 10.0f, x, captionY, line);
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.Figure, fontRuntimes, null, null, FontVariant.REGULAR, 10.0f, x, captionY, line);
                     captionY -= 12.0f;
                 }
             }
@@ -1483,7 +1529,7 @@ public final class A11yPdfDocument {
                         : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, line);
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, line);
                 }
                 y -= 14.4f;
             }
@@ -1503,7 +1549,7 @@ public final class A11yPdfDocument {
                             : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
+                        drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
                     }
                     y -= 13.2f;
                 }
@@ -1735,6 +1781,7 @@ public final class A11yPdfDocument {
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    cs.beginMarkedContent(COSName.getPDFName("Artifact"));
                     cs.addRect(tableX, tableBottom, tableWidth, tableHeight);
                     for (int i = 1; i < colCount; i++) {
                         float lineX = tableX + i * colWidth;
@@ -1752,13 +1799,15 @@ public final class A11yPdfDocument {
                         cs.lineTo(tableX + tableWidth, lineY);
                     }
                     cs.stroke();
+                    cs.endMarkedContent();
 
                     for (int i = 0; i < colCount; i++) {
                         List<String> headerLinesWrapped = wrappedHeader.get(i);
                         float headerLineY = tableTop - cellPadding - headerFontSize;
                         for (String line : headerLinesWrapped) {
-                            drawChunkedLine(
+                            drawTaggedChunkedLine(
                                     cs,
+                                StandardStructureTypes.TH,
                                     fontRuntimes,
                                     TextStyle.of(tableBlock.style.fontFamilyKey, FontVariant.BOLD),
                                     tableBlock.style,
@@ -1779,8 +1828,9 @@ public final class A11yPdfDocument {
                             List<String> cellLines = rowCells.get(c);
                             float cellLineY = rowTop - cellPadding - bodyFontSize;
                             for (String line : cellLines) {
-                                drawChunkedLine(
+                                drawTaggedChunkedLine(
                                         cs,
+                                    StandardStructureTypes.TD,
                                         fontRuntimes,
                                         null,
                                         tableBlock.style,
@@ -1809,6 +1859,11 @@ public final class A11yPdfDocument {
         private void setupCatalogMetadata(PDDocument doc) throws IOException {
             PDDocumentCatalog catalog = doc.getDocumentCatalog();
             catalog.setLanguage(lang);
+
+            // Mark the document as tagged (required by PDF/UA and checked by PAC)
+            COSDictionary markInfo = new COSDictionary();
+            markInfo.setBoolean(COSName.getPDFName("Marked"), true);
+            catalog.getCOSObject().setItem(COSName.getPDFName("MarkInfo"), markInfo);
 
             PDDocumentInformation info = doc.getDocumentInformation();
             info.setTitle(title);
@@ -2113,6 +2168,33 @@ public final class A11yPdfDocument {
             }
         }
 
+        private void drawTaggedChunkedLine(
+                PDPageContentStream cs,
+                String structureTag,
+                Map<String, FontRuntime> fontRuntimes,
+                TextStyle nodeStyle,
+                TextStyle parentStyle,
+                FontVariant fallbackVariant,
+                float fontSize,
+                float x,
+                float y,
+                String text) throws IOException {
+            String tag = (structureTag == null || structureTag.isBlank()) ? StandardStructureTypes.P : structureTag;
+            PDPage recordPage = currentRenderPage;
+            int mcid = allocateMcid(recordPage != null ? recordPage : new PDPage());
+            if (recordPage != null && currentElementIndex >= 0) {
+                markedContentRecords.add(new MarkedContentRecord(currentElementIndex, recordPage, mcid));
+            }
+            COSDictionary markedContentProps = new COSDictionary();
+            markedContentProps.setInt(COSName.MCID, mcid);
+            cs.beginMarkedContent(COSName.getPDFName(tag), PDPropertyList.create(markedContentProps));
+            try {
+                drawChunkedLine(cs, fontRuntimes, nodeStyle, parentStyle, fallbackVariant, fontSize, x, y, text);
+            } finally {
+                cs.endMarkedContent();
+            }
+        }
+
         private List<String> wrapText(String text, float availableWidth, float averageCharWidth) {
             if (text == null || text.isBlank()) {
                 return Collections.singletonList("");
@@ -2202,7 +2284,7 @@ public final class A11yPdfDocument {
                     } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
                         lineX += listBlock.customIndentPt;
                     }
-                    drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                    drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     y -= leading;
                 }
                 if (item.nestedList != null) {
@@ -2261,7 +2343,7 @@ public final class A11yPdfDocument {
                     }
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     }
                     y -= 14.4f;
                 }
@@ -2324,29 +2406,111 @@ public final class A11yPdfDocument {
             PDStructureTreeRoot root = new PDStructureTreeRoot();
             catalog.setStructureTreeRoot(root);
 
-            for (Element element : elements) {
+            for (int elemIdx = 0; elemIdx < elements.size(); elemIdx++) {
+                Element element = elements.get(elemIdx);
                 if (element instanceof Heading heading) {
-                    root.appendKid(new PDStructureElement(mapHeadingType(heading.level), root));
+                    PDStructureElement e = new PDStructureElement(mapHeadingType(heading.level), root);
+                    root.appendKid(e);
+                    attachMCRs(e, elemIdx);
                 } else if (element instanceof Paragraph) {
-                    root.appendKid(new PDStructureElement(StandardStructureTypes.P, root));
-                } else if (element instanceof Figure) {
-                    root.appendKid(new PDStructureElement(StandardStructureTypes.Figure, root));
+                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.P, root);
+                    root.appendKid(e);
+                    attachMCRs(e, elemIdx);
+                } else if (element instanceof Figure figure) {
+                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.Figure, root);
+                    String altValue = figure.decorative ? "" : (figure.altText != null && !figure.altText.isBlank() ? figure.altText : figure.pathOrId);
+                    e.getCOSObject().setString(COSName.ALT, altValue != null ? altValue : "");
+                    float[] bbox = figureBBoxes.get(elemIdx);
+                    if (bbox != null) {
+                        COSArray bboxArray = new COSArray();
+                        bboxArray.add(COSInteger.get((int) bbox[0]));
+                        bboxArray.add(COSInteger.get((int) bbox[1]));
+                        bboxArray.add(COSInteger.get((int) (bbox[0] + bbox[2])));
+                        bboxArray.add(COSInteger.get((int) (bbox[1] + bbox[3])));
+                        COSDictionary attrDict = new COSDictionary();
+                        attrDict.setName(COSName.O, "Layout");
+                        attrDict.setItem(COSName.getPDFName("BBox"), bboxArray);
+                        e.getCOSObject().setItem(COSName.getPDFName("A"), attrDict);
+                    }
+                    root.appendKid(e);
+                    attachMCRs(e, elemIdx);
                 } else if (element instanceof ListBlock listBlock) {
-                    appendListStructure(root, listBlock);
+                    PDStructureElement e = appendListStructure(root, listBlock);
+                    attachMCRs(e, elemIdx);
                 } else if (element instanceof TableBlock tableBlock) {
-                    appendTableStructure(root, tableBlock);
+                    PDStructureElement e = appendTableStructure(root, tableBlock);
+                    attachMCRs(e, elemIdx);
                 } else if (element instanceof TocBlock tocBlock) {
-                    appendTocStructure(root, tocBlock);
+                    PDStructureElement e = appendTocStructure(root, tocBlock);
+                    attachMCRs(e, elemIdx);
                 } else if (element instanceof CustomBlock) {
-                    root.appendKid(new PDStructureElement("Sect", root));
+                    PDStructureElement e = new PDStructureElement("Sect", root);
+                    root.appendKid(e);
+                    attachMCRs(e, elemIdx);
+                }
+            }
+
+            buildParentTree(root);
+        }
+
+        private void buildParentTree(PDStructureTreeRoot structRoot) {
+            // Collect distinct pages in encounter order
+            Map<PDPage, Integer> pageToKey = new LinkedHashMap<>();
+            for (MarkedContentRecord rec : markedContentRecords) {
+                if (rec.page() != null) {
+                    pageToKey.putIfAbsent(rec.page(), pageToKey.size());
+                }
+            }
+            if (pageToKey.isEmpty()) {
+                return;
+            }
+
+            // Assign StructParents key to each page and build the Nums array
+            COSArray nums = new COSArray();
+            for (Map.Entry<PDPage, Integer> entry : pageToKey.entrySet()) {
+                PDPage page = entry.getKey();
+                int structParentsKey = entry.getValue();
+
+                page.getCOSObject().setInt(COSName.getPDFName("StructParents"), structParentsKey);
+
+                Map<Integer, PDStructureElement> pageMap = mcidToStructElem.getOrDefault(page, Map.of());
+                // Array must be indexed 0..maxMcid on this page; each slot = owning struct element
+                int maxMcid = pageMap.isEmpty() ? -1 : pageMap.keySet().stream().mapToInt(Integer::intValue).max().getAsInt();
+                COSArray pageArray = new COSArray();
+                for (int i = 0; i <= maxMcid; i++) {
+                    PDStructureElement se = pageMap.get(i);
+                    pageArray.add(se != null ? se.getCOSObject() : COSNull.NULL);
+                }
+
+                nums.add(COSInteger.get(structParentsKey));
+                nums.add(pageArray);
+            }
+
+            COSDictionary parentTreeDict = new COSDictionary();
+            parentTreeDict.setItem(COSName.NUMS, nums);
+            structRoot.getCOSObject().setItem(COSName.getPDFName("ParentTree"), parentTreeDict);
+            structRoot.getCOSObject().setInt(COSName.getPDFName("ParentTreeNextKey"), pageToKey.size());
+        }
+
+        private void attachMCRs(PDStructureElement elem, int elementIndex) {
+            for (MarkedContentRecord record : markedContentRecords) {
+                if (record.elementIndex() == elementIndex) {
+                    PDMarkedContentReference mcr = new PDMarkedContentReference();
+                    mcr.setPage(record.page());
+                    mcr.setMCID(record.mcid());
+                    elem.appendKid(mcr);
+                    mcidToStructElem
+                            .computeIfAbsent(record.page(), p -> new LinkedHashMap<>())
+                            .put(record.mcid(), elem);
                 }
             }
         }
 
-        private void appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock) {
+        private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock) {
             PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
             parent.appendKid(list);
             appendListItemsStructure(list, listBlock);
+            return list;
         }
 
         private void appendListStructure(PDStructureElement parent, ListBlock listBlock) {
@@ -2369,7 +2533,7 @@ public final class A11yPdfDocument {
             }
         }
 
-        private void appendTableStructure(PDStructureTreeRoot root, TableBlock tableBlock) {
+        private PDStructureElement appendTableStructure(PDStructureTreeRoot root, TableBlock tableBlock) {
             PDStructureElement table = new PDStructureElement(StandardStructureTypes.TABLE, root);
             root.appendKid(table);
 
@@ -2380,6 +2544,10 @@ public final class A11yPdfDocument {
                 tHead.appendKid(headerRow);
                 for (int c = 0; c < tableBlock.headerCells.size(); c++) {
                     PDStructureElement th = new PDStructureElement(StandardStructureTypes.TH, headerRow);
+                    COSDictionary thAttr = new COSDictionary();
+                    thAttr.setName(COSName.O, "Table");
+                    thAttr.setName(COSName.getPDFName("Scope"), "Column");
+                    th.getCOSObject().setItem(COSName.getPDFName("A"), thAttr);
                     headerRow.appendKid(th);
                 }
             }
@@ -2395,9 +2563,10 @@ public final class A11yPdfDocument {
                     tr.appendKid(td);
                 }
             }
+            return table;
         }
 
-        private void appendTocStructure(PDStructureTreeRoot root, TocBlock tocBlock) {
+        private PDStructureElement appendTocStructure(PDStructureTreeRoot root, TocBlock tocBlock) {
             PDStructureElement toc = new PDStructureElement(StandardStructureTypes.TOC, root);
             root.appendKid(toc);
 
@@ -2408,6 +2577,7 @@ public final class A11yPdfDocument {
                 PDStructureElement reference = new PDStructureElement("Reference", toci);
                 toci.appendKid(reference);
             }
+            return toc;
         }
 
         private void maybeWriteArtifactMarker(PDDocument doc, PDPage page) throws IOException {
@@ -2910,6 +3080,9 @@ public final class A11yPdfDocument {
     }
 
     private record RenderCursor(PDPage page, float y) {
+    }
+
+    private record MarkedContentRecord(int elementIndex, PDPage page, int mcid) {
     }
 
         private record FigureRenderPlan(
