@@ -2464,7 +2464,14 @@ public final class A11yPdfDocument {
                     document.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof Figure figure) {
-                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.Figure, document);
+                    PDStructureElement figureParent = document;
+                    if (figure.flowMode == FigureFlowMode.INLINE) {
+                        PDStructureElement paragraph = new PDStructureElement(StandardStructureTypes.P, document);
+                        document.appendKid(paragraph);
+                        figureParent = paragraph;
+                    }
+
+                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.Figure, figureParent);
                     String altValue = figure.decorative ? "" : (figure.altText != null && !figure.altText.isBlank() ? figure.altText : figure.pathOrId);
                     e.getCOSObject().setString(COSName.ALT, altValue != null ? altValue : "");
                     float[] bbox = figureBBoxes.get(elemIdx);
@@ -2476,10 +2483,12 @@ public final class A11yPdfDocument {
                         bboxArray.add(COSInteger.get((int) (bbox[1] + bbox[3])));
                         COSDictionary attrDict = new COSDictionary();
                         attrDict.setName(COSName.O, "Layout");
+                        attrDict.setName(COSName.getPDFName("Placement"),
+                                figure.flowMode == FigureFlowMode.SPAN_ALL_COLUMNS ? "Block" : "Inline");
                         attrDict.setItem(COSName.getPDFName("BBox"), bboxArray);
                         e.getCOSObject().setItem(COSName.getPDFName("A"), attrDict);
                     }
-                    document.appendKid(e);
+                    figureParent.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof ListBlock listBlock) {
                     appendListStructure(document, listBlock, elemIdx);
