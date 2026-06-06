@@ -43,6 +43,7 @@ import com.likide.a11y.pdf.fonts.FontResolutionException;
 import com.likide.a11y.pdf.fonts.FontRuntime;
 import com.likide.a11y.pdf.fonts.FontVariant;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
+import com.likide.a11y.pdf.model.DeclarativeFontConfig;
 import com.likide.a11y.pdf.model.DocumentModelConverter;
 import com.likide.a11y.pdf.model.FluentCustomNode;
 import com.likide.a11y.pdf.model.FluentDocumentSnapshot;
@@ -102,6 +103,19 @@ public final class A11yPdfDocument {
                         model.pageSettings().marginRight(),
                         model.pageSettings().marginBottom(),
                         model.pageSettings().marginLeft());
+
+        // Apply font family registrations from JSON
+        for (Map.Entry<String, DeclarativeFontConfig> entry : document.fonts.entrySet()) {
+            DeclarativeFontConfig cfg = entry.getValue();
+            A11yFontFamily family = buildFontFamilyFromConfig(cfg);
+            if (family != null) {
+                if ("default".equals(entry.getKey())) {
+                    builder.defaultFontFamily(family);
+                } else {
+                    builder.registerFontFamily(entry.getKey(), family);
+                }
+            }
+        }
 
         for (IntermediateNode node : model.nodes()) {
             if (node instanceof IntermediateHeading heading) {
@@ -192,6 +206,27 @@ public final class A11yPdfDocument {
             return TextStyle.of(null, defaultVariant);
         }
         return TextStyle.of(style.fontFamily(), parseFontVariant(style.fontVariant(), defaultVariant));
+    }
+
+    private static A11yFontFamily buildFontFamilyFromConfig(DeclarativeFontConfig cfg) {
+        if (cfg == null || (cfg.regular == null && cfg.bold == null)) {
+            return null;
+        }
+        A11yFontFamily.FontSource regular = fontSourceFromPath(cfg.regular);
+        if (regular == null) {
+            return null;
+        }
+        A11yFontFamily.FontSource bold = cfg.bold != null ? fontSourceFromPath(cfg.bold) : regular;
+        A11yFontFamily.FontSource italic = cfg.italic != null ? fontSourceFromPath(cfg.italic) : regular;
+        A11yFontFamily.FontSource boldItalic = cfg.boldItalic != null ? fontSourceFromPath(cfg.boldItalic) : bold;
+        return new A11yFontFamily(regular, bold, italic, boldItalic);
+    }
+
+    private static A11yFontFamily.FontSource fontSourceFromPath(String pathString) {
+        if (pathString == null || pathString.isBlank()) {
+            return null;
+        }
+        return A11yFontFamily.FontSource.file(Path.of(pathString));
     }
 
     private static FontVariant parseFontVariant(String rawValue, FontVariant fallback) {
@@ -311,6 +346,9 @@ public final class A11yPdfDocument {
         private final List<MarkedContentRecord> markedContentRecords = new ArrayList<>();
         private final Map<PDPage, Map<Integer, PDStructureElement>> mcidToStructElem = new LinkedHashMap<>();
         private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
+        private int currentItemSlot = -1;
+        private int nextItemSlot = 0;
+        private int nextStructureItemSlot = 0;
         private A11yFontFamily documentFontFamily = A11yFontFamily.helvetica();
         private final Map<String, A11yFontFamily> fontFamilies = new LinkedHashMap<>();
         private final List<Path> fallbackFontFiles = new ArrayList<>();
@@ -906,6 +944,8 @@ public final class A11yPdfDocument {
             figureBBoxes.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
+            currentItemSlot = -1;
+            nextItemSlot = 0;
 
             Map<String, FontRuntime> fontRuntimes = loadFontRuntimes(doc);
 
@@ -926,6 +966,7 @@ public final class A11yPdfDocument {
             for (int elemIdx = 0; elemIdx < elements.size(); elemIdx++) {
                 Element element = elements.get(elemIdx);
                 currentElementIndex = elemIdx;
+                currentItemSlot = -1;
 
                 if (element instanceof SectionOverride sectionOverride) {
                     activeColumns = sectionOverride.columns;
@@ -1470,7 +1511,7 @@ public final class A11yPdfDocument {
                 if (plan.image() != null) {
                     int imgMcid = allocateMcid(page);
                     if (currentElementIndex >= 0) {
-                        markedContentRecords.add(new MarkedContentRecord(currentElementIndex, page, imgMcid));
+                        markedContentRecords.add(new MarkedContentRecord(currentElementIndex, -1, page, imgMcid));
                     }
                     COSDictionary imgProps = new COSDictionary();
                     imgProps.setInt(COSName.MCID, imgMcid);
@@ -2183,7 +2224,7 @@ public final class A11yPdfDocument {
             PDPage recordPage = currentRenderPage;
             int mcid = allocateMcid(recordPage != null ? recordPage : new PDPage());
             if (recordPage != null && currentElementIndex >= 0) {
-                markedContentRecords.add(new MarkedContentRecord(currentElementIndex, recordPage, mcid));
+                markedContentRecords.add(new MarkedContentRecord(currentElementIndex, currentItemSlot, recordPage, mcid));
             }
             COSDictionary markedContentProps = new COSDictionary();
             markedContentProps.setInt(COSName.MCID, mcid);
@@ -2273,6 +2314,7 @@ public final class A11yPdfDocument {
 
             for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
                 ListItem item = listBlock.items.get(itemIndex);
+                currentItemSlot = nextItemSlot++;
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     String line = lines.get(lineIndex);
@@ -2326,6 +2368,7 @@ public final class A11yPdfDocument {
 
             for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
                 ListItem item = listBlock.items.get(itemIndex);
+                currentItemSlot = nextItemSlot++;
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     if (y - 14.4f < marginBottom) {
@@ -2405,6 +2448,7 @@ public final class A11yPdfDocument {
             PDDocumentCatalog catalog = doc.getDocumentCatalog();
             PDStructureTreeRoot root = new PDStructureTreeRoot();
             catalog.setStructureTreeRoot(root);
+            nextStructureItemSlot = 0;
 
             for (int elemIdx = 0; elemIdx < elements.size(); elemIdx++) {
                 Element element = elements.get(elemIdx);
@@ -2435,8 +2479,8 @@ public final class A11yPdfDocument {
                     root.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof ListBlock listBlock) {
-                    PDStructureElement e = appendListStructure(root, listBlock);
-                    attachMCRs(e, elemIdx);
+                    PDStructureElement e = appendListStructure(root, listBlock, elemIdx);
+                    // MCRs are attached per-item to LBody in appendListItemsStructure; do not attach to L
                 } else if (element instanceof TableBlock tableBlock) {
                     PDStructureElement e = appendTableStructure(root, tableBlock);
                     attachMCRs(e, elemIdx);
@@ -2494,7 +2538,7 @@ public final class A11yPdfDocument {
 
         private void attachMCRs(PDStructureElement elem, int elementIndex) {
             for (MarkedContentRecord record : markedContentRecords) {
-                if (record.elementIndex() == elementIndex) {
+                if (record.elementIndex() == elementIndex && record.itemSlot() == -1) {
                     PDMarkedContentReference mcr = new PDMarkedContentReference();
                     mcr.setPage(record.page());
                     mcr.setMCID(record.mcid());
@@ -2506,20 +2550,34 @@ public final class A11yPdfDocument {
             }
         }
 
-        private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock) {
+        private void attachListItemMCRs(PDStructureElement elem, int elementIndex, int itemSlot) {
+            for (MarkedContentRecord record : markedContentRecords) {
+                if (record.elementIndex() == elementIndex && record.itemSlot() == itemSlot) {
+                    PDMarkedContentReference mcr = new PDMarkedContentReference();
+                    mcr.setPage(record.page());
+                    mcr.setMCID(record.mcid());
+                    elem.appendKid(mcr);
+                    mcidToStructElem
+                            .computeIfAbsent(record.page(), p -> new LinkedHashMap<>())
+                            .put(record.mcid(), elem);
+                }
+            }
+        }
+
+        private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock, int elemIdx) {
             PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
             parent.appendKid(list);
-            appendListItemsStructure(list, listBlock);
+            appendListItemsStructure(list, listBlock, elemIdx);
             return list;
         }
 
-        private void appendListStructure(PDStructureElement parent, ListBlock listBlock) {
+        private void appendListStructure(PDStructureElement parent, ListBlock listBlock, int elemIdx) {
             PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
             parent.appendKid(list);
-            appendListItemsStructure(list, listBlock);
+            appendListItemsStructure(list, listBlock, elemIdx);
         }
 
-        private void appendListItemsStructure(PDStructureElement list, ListBlock listBlock) {
+        private void appendListItemsStructure(PDStructureElement list, ListBlock listBlock, int elemIdx) {
             for (ListItem item : listBlock.items) {
                 PDStructureElement li = new PDStructureElement(StandardStructureTypes.LI, list);
                 list.appendKid(li);
@@ -2527,8 +2585,9 @@ public final class A11yPdfDocument {
                 PDStructureElement body = new PDStructureElement("LBody", li);
                 li.appendKid(label);
                 li.appendKid(body);
+                attachListItemMCRs(body, elemIdx, nextStructureItemSlot++);
                 if (item.nestedList != null) {
-                    appendListStructure(body, item.nestedList);
+                    appendListStructure(body, item.nestedList, elemIdx);
                 }
             }
         }
@@ -3082,7 +3141,7 @@ public final class A11yPdfDocument {
     private record RenderCursor(PDPage page, float y) {
     }
 
-    private record MarkedContentRecord(int elementIndex, PDPage page, int mcid) {
+    private record MarkedContentRecord(int elementIndex, int itemSlot, PDPage page, int mcid) {
     }
 
         private record FigureRenderPlan(

@@ -10,6 +10,7 @@ import com.likide.a11y.pdf.model.DeclarativeBoxModel;
 import com.likide.a11y.pdf.model.DeclarativeCustomNode;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeFigure;
+import com.likide.a11y.pdf.model.DeclarativeFontConfig;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
 import com.likide.a11y.pdf.model.DeclarativeListItem;
@@ -80,6 +81,21 @@ public final class JsonParser {
         JsonNode pageNode = root.path("page");
         if (pageNode.isObject()) {
             doc.page = parsePageSettings(pageNode);
+        }
+
+        JsonNode fontsNode = root.path("fonts");
+        if (fontsNode.isObject()) {
+            fontsNode.fieldNames().forEachRemaining(key -> {
+                JsonNode familyNode = fontsNode.path(key);
+                if (familyNode.isObject()) {
+                    DeclarativeFontConfig cfg = new DeclarativeFontConfig();
+                    cfg.regular = text(familyNode, "regular");
+                    cfg.bold = text(familyNode, "bold");
+                    cfg.italic = text(familyNode, "italic");
+                    cfg.boldItalic = text(familyNode, "boldItalic");
+                    doc.fonts.put(key, cfg);
+                }
+            });
         }
 
         JsonNode nodes = root.path("nodes");

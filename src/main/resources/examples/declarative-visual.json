@@ -6,6 +6,14 @@
     "columns": 2,
     "columnGap": 24.0
   },
+  "fonts": {
+    "default": {
+      "regular":    "src/main/resources/fonts/Inter-Regular.ttf",
+      "bold":       "src/main/resources/fonts/Inter-Bold.ttf",
+      "italic":     "src/main/resources/fonts/Inter-Italic.ttf",
+      "boldItalic": "src/main/resources/fonts/Inter-BoldItalic.ttf"
+    }
+  },
   "nodes": [
     {
       "level": 1,
