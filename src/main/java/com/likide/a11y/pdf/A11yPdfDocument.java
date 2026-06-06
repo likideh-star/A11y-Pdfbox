@@ -2450,18 +2450,21 @@ public final class A11yPdfDocument {
             catalog.setStructureTreeRoot(root);
             nextStructureItemSlot = 0;
 
+            PDStructureElement document = new PDStructureElement(StandardStructureTypes.DOCUMENT, root);
+            root.appendKid(document);
+
             for (int elemIdx = 0; elemIdx < elements.size(); elemIdx++) {
                 Element element = elements.get(elemIdx);
                 if (element instanceof Heading heading) {
-                    PDStructureElement e = new PDStructureElement(mapHeadingType(heading.level), root);
-                    root.appendKid(e);
+                    PDStructureElement e = new PDStructureElement(mapHeadingType(heading.level), document);
+                    document.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof Paragraph) {
-                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.P, root);
-                    root.appendKid(e);
+                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.P, document);
+                    document.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof Figure figure) {
-                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.Figure, root);
+                    PDStructureElement e = new PDStructureElement(StandardStructureTypes.Figure, document);
                     String altValue = figure.decorative ? "" : (figure.altText != null && !figure.altText.isBlank() ? figure.altText : figure.pathOrId);
                     e.getCOSObject().setString(COSName.ALT, altValue != null ? altValue : "");
                     float[] bbox = figureBBoxes.get(elemIdx);
@@ -2476,20 +2479,20 @@ public final class A11yPdfDocument {
                         attrDict.setItem(COSName.getPDFName("BBox"), bboxArray);
                         e.getCOSObject().setItem(COSName.getPDFName("A"), attrDict);
                     }
-                    root.appendKid(e);
+                    document.appendKid(e);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof ListBlock listBlock) {
-                    PDStructureElement e = appendListStructure(root, listBlock, elemIdx);
+                    appendListStructure(document, listBlock, elemIdx);
                     // MCRs are attached per-item to LBody in appendListItemsStructure; do not attach to L
                 } else if (element instanceof TableBlock tableBlock) {
-                    PDStructureElement e = appendTableStructure(root, tableBlock);
+                    PDStructureElement e = appendTableStructure(document, tableBlock);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof TocBlock tocBlock) {
-                    PDStructureElement e = appendTocStructure(root, tocBlock);
+                    PDStructureElement e = appendTocStructure(document, tocBlock);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof CustomBlock) {
-                    PDStructureElement e = new PDStructureElement("Sect", root);
-                    root.appendKid(e);
+                    PDStructureElement e = new PDStructureElement("Sect", document);
+                    document.appendKid(e);
                     attachMCRs(e, elemIdx);
                 }
             }
@@ -2592,10 +2595,11 @@ public final class A11yPdfDocument {
             }
         }
 
-        private PDStructureElement appendTableStructure(PDStructureTreeRoot root, TableBlock tableBlock) {
-            PDStructureElement table = new PDStructureElement(StandardStructureTypes.TABLE, root);
-            root.appendKid(table);
+        private PDStructureElement appendTableStructure(PDStructureElement parent, TableBlock tableBlock) {
+            PDStructureElement table = new PDStructureElement(StandardStructureTypes.TABLE, parent);
+            parent.appendKid(table);
 
+            List<PDStructureElement> thElements = new ArrayList<>();
             if (!tableBlock.headerCells.isEmpty()) {
                 PDStructureElement tHead = new PDStructureElement("THead", table);
                 table.appendKid(tHead);
@@ -2608,6 +2612,7 @@ public final class A11yPdfDocument {
                     thAttr.setName(COSName.getPDFName("Scope"), "Column");
                     th.getCOSObject().setItem(COSName.getPDFName("A"), thAttr);
                     headerRow.appendKid(th);
+                    thElements.add(th);
                 }
             }
 
@@ -2619,15 +2624,24 @@ public final class A11yPdfDocument {
                 int cells = tableBlock.headerCells.isEmpty() ? row.size() : tableBlock.headerCells.size();
                 for (int c = 0; c < cells; c++) {
                     PDStructureElement td = new PDStructureElement(StandardStructureTypes.TD, tr);
+                    // Link TD to its column TH via /Headers attribute
+                    if (c < thElements.size()) {
+                        COSDictionary tdAttr = new COSDictionary();
+                        tdAttr.setName(COSName.O, "Table");
+                        COSArray headersArray = new COSArray();
+                        headersArray.add(thElements.get(c).getCOSObject());
+                        tdAttr.setItem(COSName.getPDFName("Headers"), headersArray);
+                        td.getCOSObject().setItem(COSName.getPDFName("A"), tdAttr);
+                    }
                     tr.appendKid(td);
                 }
             }
             return table;
         }
 
-        private PDStructureElement appendTocStructure(PDStructureTreeRoot root, TocBlock tocBlock) {
-            PDStructureElement toc = new PDStructureElement(StandardStructureTypes.TOC, root);
-            root.appendKid(toc);
+        private PDStructureElement appendTocStructure(PDStructureElement parent, TocBlock tocBlock) {
+            PDStructureElement toc = new PDStructureElement(StandardStructureTypes.TOC, parent);
+            parent.appendKid(toc);
 
             List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
             for (TocEntry entry : entries) {
