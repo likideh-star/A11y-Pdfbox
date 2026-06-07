@@ -9,6 +9,7 @@ import org.apache.pdfbox.cos.COSObject;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
+import org.apache.pdfbox.text.PDFTextStripper;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -18,6 +19,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PdfAssertions {
@@ -75,6 +77,20 @@ final class PdfAssertions {
             }
         }
         throw new AssertionError("PDF stream must contain /Artifact marked content");
+    }
+
+    static void assertExtractedTextContains(byte[] pdfBytes, String expectedText) throws IOException {
+        try (PDDocument doc = load(pdfBytes)) {
+            String extracted = new PDFTextStripper().getText(doc);
+            assertTrue(extracted.contains(expectedText), "Expected extracted text to contain: " + expectedText);
+        }
+    }
+
+    static void assertStructureDoesNotContainTag(PDDocument doc, String forbiddenTag) {
+        PDStructureTreeRoot root = doc.getDocumentCatalog().getStructureTreeRoot();
+        assertNotNull(root, "Structure tree root must exist");
+        Set<String> tags = collectStructureTags(root.getCOSObject());
+        assertFalse(tags.contains(forbiddenTag), "Forbidden structure tag found: " + forbiddenTag);
     }
 
     private static Set<String> collectStructureTags(COSBase node) {

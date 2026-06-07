@@ -68,5 +68,9 @@ class PrdComplianceTest {
     void pageDecorations_shouldBeTaggedAsArtifacts() throws Exception {
         byte[] pdf = adapter.buildDocumentWithPageArtifacts();
         assertDoesNotThrow(() -> PdfAssertions.assertContainsArtifactMarker(pdf));
+        assertDoesNotThrow(() -> PdfAssertions.assertExtractedTextContains(pdf, "Page 1 of 1"));
+        try (PDDocument doc = PdfAssertions.load(pdf)) {
+            PdfAssertions.assertStructureDoesNotContainTag(doc, "Artifact");
+        }
     }
 }

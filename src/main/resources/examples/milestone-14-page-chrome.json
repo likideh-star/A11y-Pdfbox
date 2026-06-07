@@ -1,0 +1,77 @@
+{
+  "lang": "en-US",
+  "title": "Milestone 14 Page Chrome Visual Check",
+  "displayDocTitle": true,
+  "page": {
+    "columns": 1,
+    "columnGap": 0.0,
+    "pageWidth": 240.0,
+    "pageHeight": 320.0,
+    "marginTop": 26.0,
+    "marginRight": 24.0,
+    "marginBottom": 26.0,
+    "marginLeft": 24.0
+  },
+  "nodes": [
+    {
+      "level": 1,
+      "text": "Milestone 14: Artifact Page Chrome"
+    },
+    {
+      "text": "This dedicated scenario exists to visually inspect artifact-based header and footer behavior across multiple pages. The body content is intentionally long so page numbering can be checked from first to last page while preserving reading order and structure tree quality."
+    },
+    {
+      "level": 2,
+      "text": "Reading Flow Block A"
+    },
+    {
+      "text": "Block A sentence 01. Block A sentence 02. Block A sentence 03. Block A sentence 04. Block A sentence 05. Block A sentence 06. Block A sentence 07. Block A sentence 08. Block A sentence 09. Block A sentence 10. Block A sentence 11. Block A sentence 12. Block A sentence 13. Block A sentence 14. Block A sentence 15. Block A sentence 16. Block A sentence 17. Block A sentence 18. Block A sentence 19. Block A sentence 20."
+    },
+    {
+      "level": 2,
+      "text": "Reading Flow Block B"
+    },
+    {
+      "text": "Block B sentence 01. Block B sentence 02. Block B sentence 03. Block B sentence 04. Block B sentence 05. Block B sentence 06. Block B sentence 07. Block B sentence 08. Block B sentence 09. Block B sentence 10. Block B sentence 11. Block B sentence 12. Block B sentence 13. Block B sentence 14. Block B sentence 15. Block B sentence 16. Block B sentence 17. Block B sentence 18. Block B sentence 19. Block B sentence 20."
+    },
+    {
+      "level": 2,
+      "text": "Reading Flow Block C"
+    },
+    {
+      "text": "Block C sentence 01. Block C sentence 02. Block C sentence 03. Block C sentence 04. Block C sentence 05. Block C sentence 06. Block C sentence 07. Block C sentence 08. Block C sentence 09. Block C sentence 10. Block C sentence 11. Block C sentence 12. Block C sentence 13. Block C sentence 14. Block C sentence 15. Block C sentence 16. Block C sentence 17. Block C sentence 18. Block C sentence 19. Block C sentence 20."
+    },
+    {
+      "level": 2,
+      "text": "List Check"
+    },
+    {
+      "items": [
+        "Page chrome should remain present while list semantics stay structured.",
+        "Header and footer text should be visible but ignored by assistive reading order.",
+        "This item is intentionally long so list wrapping appears under normal text flow and page boundaries if needed for visual inspection."
+      ],
+      "indentStyle": "ALIGN_WITH_BULLET",
+      "bulletStyle": "DASH"
+    },
+    {
+      "level": 2,
+      "text": "Table Check"
+    },
+    {
+      "headerCells": ["Check", "Expected"],
+      "rows": [
+        { "cells": ["Header", "Visible on each page"] },
+        { "cells": ["Footer", "Shows Page X of Y"] },
+        { "cells": ["Structure", "No Artifact leakage"] }
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Final Paragraph"
+    },
+    {
+      "text": "Final verification paragraph for Milestone 14 visual review. Scroll through every page and confirm separator lines plus page numbering are consistently rendered as decoration while core content remains accessible and semantically structured."
+    }
+  ]
+}

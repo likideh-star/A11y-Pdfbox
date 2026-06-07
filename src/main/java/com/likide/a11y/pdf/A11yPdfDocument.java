@@ -9,8 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IllegalFormatException;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import javax.imageio.ImageIO;
@@ -34,6 +36,8 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
@@ -339,7 +343,8 @@ public final class A11yPdfDocument {
         private float marginRight = DEFAULT_PAGE_MARGIN;
         private float marginBottom = DEFAULT_PAGE_MARGIN;
         private float marginLeft = DEFAULT_PAGE_MARGIN;
-        private String artifactHeaderFooterPattern;
+        private String artifactHeaderText;
+        private String artifactFooterPattern;
         private final List<String> preflightWarnings = new ArrayList<>();
         private int currentElementIndex = -1;
         private PDPage currentRenderPage = null;
@@ -370,6 +375,9 @@ public final class A11yPdfDocument {
 
         public Builder title(String value) {
             this.title = value;
+            if (this.artifactHeaderText == null || this.artifactHeaderText.isBlank()) {
+                this.artifactHeaderText = value;
+            }
             return this;
         }
 
@@ -619,7 +627,18 @@ public final class A11yPdfDocument {
         }
 
         public Builder artifactHeaderFooter(String pageTextPattern) {
-            this.artifactHeaderFooterPattern = pageTextPattern;
+            this.artifactHeaderText = title;
+            this.artifactFooterPattern = pageTextPattern;
+            return this;
+        }
+
+        public Builder artifactHeader(String headerText) {
+            this.artifactHeaderText = headerText;
+            return this;
+        }
+
+        public Builder artifactFooter(String pageTextPattern) {
+            this.artifactFooterPattern = pageTextPattern;
             return this;
         }
 
@@ -965,7 +984,7 @@ public final class A11yPdfDocument {
 
             if (isTextOnlyFlow()) {
                 renderTextOnlyFromLayoutBlueprint(doc, fontRuntimes);
-                maybeWriteArtifactMarker(doc, doc.getPage(0));
+                renderArtifactPageChrome(doc);
                 return;
             }
 
@@ -1115,7 +1134,7 @@ public final class A11yPdfDocument {
             }
 
             buildStructureTree(doc);
-            maybeWriteArtifactMarker(doc, doc.getPage(0));
+            renderArtifactPageChrome(doc);
         }
 
         private boolean isTextOnlyFlow() {
@@ -2527,10 +2546,10 @@ public final class A11yPdfDocument {
                 return (listBlock.start + itemIndex) + ". ";
             }
             return switch (listBlock.bulletStyle) {
-                case DISC -> "• ";
-                case CIRCLE -> "○ ";
-                case SQUARE -> "■ ";
-                case DASH -> "— ";
+                case DISC -> "* ";
+                case CIRCLE -> "o ";
+                case SQUARE -> "# ";
+                case DASH -> "- ";
                 case CUSTOM -> listBlock.customMarker + " ";
             };
         }
@@ -2828,18 +2847,72 @@ public final class A11yPdfDocument {
             return toc;
         }
 
-        private void maybeWriteArtifactMarker(PDDocument doc, PDPage page) throws IOException {
-            if (artifactHeaderFooterPattern == null) {
+        private void renderArtifactPageChrome(PDDocument doc) throws IOException {
+            if ((artifactHeaderText == null || artifactHeaderText.isBlank())
+                    && (artifactFooterPattern == null || artifactFooterPattern.isBlank())) {
                 return;
             }
-            try (PDPageContentStream contentStream = new PDPageContentStream(
-                    doc,
-                    page,
-                    PDPageContentStream.AppendMode.APPEND,
-                    true,
-                    true)) {
-                contentStream.beginMarkedContent(COSName.getPDFName("Artifact"));
-                contentStream.endMarkedContent();
+
+            int totalPages = doc.getNumberOfPages();
+            for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                PDPage page = doc.getPage(pageIndex);
+                try (PDPageContentStream contentStream = new PDPageContentStream(
+                        doc,
+                        page,
+                        PDPageContentStream.AppendMode.APPEND,
+                        true,
+                        true)) {
+                    contentStream.beginMarkedContent(COSName.getPDFName("Artifact"));
+                    drawArtifactDecorations(contentStream);
+
+                    if (artifactHeaderText != null && !artifactHeaderText.isBlank()) {
+                        float headerY = pageHeight - Math.max(10.0f, marginTop * 0.55f);
+                        drawArtifactCenteredText(contentStream, artifactHeaderText, 9.0f, headerY);
+                    }
+
+                    if (artifactFooterPattern != null && !artifactFooterPattern.isBlank()) {
+                        String footerText = formatArtifactFooter(artifactFooterPattern, pageIndex + 1, totalPages);
+                        float footerY = Math.max(8.0f, marginBottom * 0.45f);
+                        drawArtifactCenteredText(contentStream, footerText, 9.0f, footerY);
+                    }
+
+                    contentStream.endMarkedContent();
+                }
+            }
+        }
+
+        private void drawArtifactDecorations(PDPageContentStream contentStream) throws IOException {
+            contentStream.setLineWidth(0.6f);
+            contentStream.setStrokingColor(170.0f / 255.0f, 170.0f / 255.0f, 170.0f / 255.0f);
+            float topY = pageHeight - Math.max(14.0f, marginTop * 0.9f);
+            float bottomY = Math.max(14.0f, marginBottom * 0.9f);
+            contentStream.moveTo(marginLeft, topY);
+            contentStream.lineTo(pageWidth - marginRight, topY);
+            contentStream.moveTo(marginLeft, bottomY);
+            contentStream.lineTo(pageWidth - marginRight, bottomY);
+            contentStream.stroke();
+            contentStream.setStrokingColor(0.0f, 0.0f, 0.0f);
+        }
+
+        private void drawArtifactCenteredText(PDPageContentStream contentStream, String text, float fontSize, float y) throws IOException {
+            if (text == null || text.isBlank()) {
+                return;
+            }
+            PDFont font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            float textWidth = font.getStringWidth(text) / 1000.0f * fontSize;
+            float x = (pageWidth - textWidth) / 2.0f;
+            contentStream.beginText();
+            contentStream.setFont(font, fontSize);
+            contentStream.newLineAtOffset(x, y);
+            contentStream.showText(text);
+            contentStream.endText();
+        }
+
+        private String formatArtifactFooter(String pattern, int pageNumber, int totalPages) {
+            try {
+                return String.format(Locale.ROOT, pattern, pageNumber, totalPages);
+            } catch (IllegalFormatException ex) {
+                return pattern;
             }
         }
 
