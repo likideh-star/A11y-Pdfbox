@@ -2391,22 +2391,28 @@ public final class A11yPdfDocument {
                         .computeIfAbsent(currentElementIndex, k -> new ArrayList<>())
                         .add(new ListItemSlotPlan(labelSlot, bodySlot));
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
-                for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
-                    String line = lines.get(lineIndex);
-                    float lineX = bulletX;
-                    if (lineIndex == 0) {
-                        String marker = listItemPrefix(listBlock, itemIndex);
-                        currentItemSlot = labelSlot;
-                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
-                        lineX += marker.length() * averageCharWidth;
-                    } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
-                        line = "  " + line;
-                    } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
-                        lineX += listBlock.customIndentPt;
+                String marker = listItemPrefix(listBlock, itemIndex);
+                currentItemSlot = labelSlot;
+                drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+
+                currentItemSlot = bodySlot;
+                beginTaggedMarkedContent(cs, "LBody");
+                try {
+                    for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                        String line = lines.get(lineIndex);
+                        float lineX = bulletX;
+                        if (lineIndex == 0) {
+                            lineX += marker.length() * averageCharWidth;
+                        } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
+                            line = "  " + line;
+                        } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
+                            lineX += listBlock.customIndentPt;
+                        }
+                        drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                        y -= leading;
                     }
-                    currentItemSlot = bodySlot;
-                    drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
-                    y -= leading;
+                } finally {
+                    cs.endMarkedContent();
                 }
                 currentItemSlot = -1;
                 if (item.nestedList != null) {
@@ -2454,32 +2460,49 @@ public final class A11yPdfDocument {
                         .computeIfAbsent(currentElementIndex, k -> new ArrayList<>())
                         .add(new ListItemSlotPlan(labelSlot, bodySlot));
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
-                for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                String marker = listItemPrefix(listBlock, itemIndex);
+                if (y - 14.4f < marginBottom) {
+                    page = addStructuredPage(doc);
+                    y = pageHeight - marginTop;
+                }
+                currentItemSlot = labelSlot;
+                try (PDPageContentStream cs = new PDPageContentStream(
+                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+                }
+
+                int lineIndex = 0;
+                currentItemSlot = bodySlot;
+                while (lineIndex < lines.size()) {
                     if (y - 14.4f < marginBottom) {
                         page = addStructuredPage(doc);
                         y = pageHeight - marginTop;
                     }
-                    String line = lines.get(lineIndex);
-                    float lineX = bulletX;
-                    if (lineIndex == 0) {
-                        String marker = listItemPrefix(listBlock, itemIndex);
-                        currentItemSlot = labelSlot;
-                        try (PDPageContentStream cs = new PDPageContentStream(
-                                doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                            drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
-                        }
-                        lineX += marker.length() * averageCharWidth;
-                    } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
-                        line = "  " + line;
-                    } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
-                        lineX += listBlock.customIndentPt;
-                    }
-                    currentItemSlot = bodySlot;
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                        beginTaggedMarkedContent(cs, "LBody");
+                        try {
+                            while (lineIndex < lines.size()) {
+                                if (y - 14.4f < marginBottom) {
+                                    break;
+                                }
+                                String line = lines.get(lineIndex);
+                                float lineX = bulletX;
+                                if (lineIndex == 0) {
+                                    lineX += marker.length() * averageCharWidth;
+                                } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
+                                    line = "  " + line;
+                                } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
+                                    lineX += listBlock.customIndentPt;
+                                }
+                                drawChunkedLine(cs, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                                y -= 14.4f;
+                                lineIndex++;
+                            }
+                        } finally {
+                            cs.endMarkedContent();
+                        }
                     }
-                    y -= 14.4f;
                 }
                 currentItemSlot = -1;
 
