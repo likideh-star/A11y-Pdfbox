@@ -103,7 +103,22 @@ public final class JsonParser {
             throw new JsonParseException("JSON must contain an array field 'nodes'");
         }
         for (JsonNode node : nodes) {
-            doc.nodes.add(parseNode(node));
+            DeclarativeNode parsed = parseNode(node);
+            if (parsed instanceof DeclarativeToc toc
+                    && toc.titleLevel != null
+                    && toc.titleLevel > 0
+                    && toc.title != null
+                    && !toc.title.isBlank()) {
+                DeclarativeHeading titleHeading = new DeclarativeHeading();
+                titleHeading.level = toc.titleLevel;
+                titleHeading.text = toc.title;
+                titleHeading.semantic = new DeclarativeSemanticMetadata();
+                titleHeading.semantic.roleHint = "toc-title";
+                titleHeading.semantic.nodeFamily = "toc";
+                doc.nodes.add(titleHeading);
+                toc.title = "";
+            }
+            doc.nodes.add(parsed);
         }
 
         return doc;
@@ -251,6 +266,7 @@ public final class JsonParser {
     private static DeclarativeToc parseToc(JsonNode node) {
         DeclarativeToc toc = new DeclarativeToc();
         toc.title = text(node, "title");
+        toc.titleLevel = integer(node, "titleLevel");
         toc.maxDepth = integer(node, "maxDepth");
         toc.semantic = parseSemanticMetadata(node.path("semantic"));
         return toc;

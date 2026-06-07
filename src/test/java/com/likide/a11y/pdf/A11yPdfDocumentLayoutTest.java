@@ -655,6 +655,33 @@ class A11yPdfDocumentLayoutTest {
         }
     }
 
+        @Test
+        void parseDeclarativeToc_shouldExpandTitleIntoHeadingBeforeToc() throws IOException {
+                String json = """
+                                {
+                                    "nodes": [
+                                        { "level": 1, "text": "One" },
+                                        { "title": "Outline", "titleLevel": 2, "maxDepth": 2 }
+                                    ]
+                                }
+                                """;
+
+                DeclarativeDocument parsed = JsonParser.parse(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+
+                assertEquals(3, parsed.nodes.size());
+                assertTrue(parsed.nodes.get(1) instanceof DeclarativeHeading);
+                DeclarativeHeading generatedHeading = (DeclarativeHeading) parsed.nodes.get(1);
+                assertEquals(2, generatedHeading.level);
+                assertEquals("Outline", generatedHeading.text);
+                assertTrue(parsed.nodes.get(2) instanceof com.likide.a11y.pdf.model.DeclarativeToc);
+
+                byte[] pdf = A11yPdfDocument.fromDeclarative(parsed).buildBytes();
+                try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                        String extracted = new PDFTextStripper().getText(rendered);
+                        assertEquals(1, countOccurrences(extracted, "Outline"));
+                }
+        }
+
     @Test
     void buildBytes_mixedFlowParagraphWithPadding_shouldPaginate() throws IOException {
         String longText = "padded flow text ".repeat(1200);

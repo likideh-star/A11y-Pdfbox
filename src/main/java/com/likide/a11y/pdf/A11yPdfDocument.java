@@ -119,12 +119,13 @@ public final class A11yPdfDocument {
 
         for (IntermediateNode node : model.nodes()) {
             if (node instanceof IntermediateHeading heading) {
-                builder.heading(
+                builder.addHeading(
                         heading.level(),
                         heading.text(),
                         fromIntermediateBoxModel(heading.style().boxModel()),
                         heading.style().lineHeightMultiplier(),
-                        fromIntermediateStyle(heading.style(), FontVariant.BOLD));
+                        fromIntermediateStyle(heading.style(), FontVariant.BOLD),
+                        !"toc-title".equals(heading.semantic().roleHint()));
             } else if (node instanceof IntermediateParagraph paragraph) {
                 builder.paragraph(
                         paragraph.text(),
@@ -445,18 +446,26 @@ public final class A11yPdfDocument {
         }
 
         public Builder heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier) {
-            if (level < 1 || level > 6) {
-                throw new ValidationException("heading level must be between 1 and 6");
-            }
-            if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
-                throw new ValidationException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
-            }
-            lastHeadingLevel = level;
-            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier), TextStyle.of(null, FontVariant.BOLD)));
-            return this;
+            return addHeading(
+                    level,
+                    text,
+                    boxModel,
+                    lineHeightMultiplier,
+                    TextStyle.of(null, FontVariant.BOLD),
+                    true);
         }
 
         public Builder heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
+            return addHeading(
+                    level,
+                    text,
+                    boxModel,
+                    lineHeightMultiplier,
+                    normalizeStyle(style, FontVariant.BOLD),
+                    true);
+        }
+
+        private Builder addHeading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style, boolean includeInToc) {
             if (level < 1 || level > 6) {
                 throw new ValidationException("heading level must be between 1 and 6");
             }
@@ -464,7 +473,7 @@ public final class A11yPdfDocument {
                 throw new ValidationException("Heading hierarchy skip detected: H" + lastHeadingLevel + " -> H" + level);
             }
             lastHeadingLevel = level;
-            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier), normalizeStyle(style, FontVariant.BOLD)));
+            elements.add(new Heading(level, text, boxModel, validateLineHeight(lineHeightMultiplier), style, includeInToc));
             return this;
         }
 
@@ -582,7 +591,7 @@ public final class A11yPdfDocument {
             if (maxDepth < 1) {
                 throw new ValidationException("TOC maxDepth must be >= 1");
             }
-            elements.add(new TocBlock(title == null ? "" : title, maxDepth));
+            elements.add(new TocBlock(title, maxDepth));
             return this;
         }
 
@@ -1236,8 +1245,10 @@ public final class A11yPdfDocument {
             }
             if (element instanceof TocBlock tocBlock) {
                 float content = 14.4f;
-                String title = tocBlock.title == null || tocBlock.title.isBlank() ? "Table of Contents" : tocBlock.title;
-                content += wrapText(title, Math.max(1.0f, contentWidth), 12.0f * 0.55f).size() * 14.4f;
+                String title = tocBlock.title == null ? "Table of Contents" : tocBlock.title;
+                if (!title.isBlank()) {
+                    content += wrapText(title, Math.max(1.0f, contentWidth), 12.0f * 0.55f).size() * 14.4f;
+                }
                 for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
                     String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
                     content += wrapText(line, Math.max(1.0f, contentWidth), 11.0f * 0.5f).size() * 13.2f;
@@ -1346,10 +1357,11 @@ public final class A11yPdfDocument {
                     y = tableBottom - 8.0f;
 
                 } else if (element instanceof TocBlock tocBlock) {
-                    String title = tocBlock.title == null || tocBlock.title.isBlank()
-                            ? "Table of Contents" : tocBlock.title;
-                    drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
-                    y -= 14.4f;
+                    String title = tocBlock.title == null ? "Table of Contents" : tocBlock.title;
+                    if (!title.isBlank()) {
+                        drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
+                        y -= 14.4f;
+                    }
                     for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
                         String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
                         drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
@@ -1568,24 +1580,26 @@ public final class A11yPdfDocument {
             }
             tocSlotPlans.put(elementIndex, new TocSlotPlan(List.copyOf(referenceSlots)));
 
-            String title = tocBlock.title == null || tocBlock.title.isBlank() ? "Table of Contents" : tocBlock.title;
-            List<String> titleLines = wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f);
+            String title = tocBlock.title == null ? "Table of Contents" : tocBlock.title;
+            if (!title.isBlank()) {
+                List<String> titleLines = wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f);
 
-            for (String line : titleLines) {
-                if (y - 14.4f < marginBottom) {
-                    FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
-                    page = next.page();
-                    columnIndex = next.columnIndex();
-                    y = next.y();
+                for (String line : titleLines) {
+                    if (y - 14.4f < marginBottom) {
+                        FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
+                        page = next.page();
+                        columnIndex = next.columnIndex();
+                        y = next.y();
+                    }
+                    float x = activeColumns <= 1
+                            ? marginLeft
+                            : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                    try (PDPageContentStream cs = new PDPageContentStream(
+                            doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                        drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, line);
+                    }
+                    y -= 14.4f;
                 }
-                float x = activeColumns <= 1
-                        ? marginLeft
-                        : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
-                try (PDPageContentStream cs = new PDPageContentStream(
-                        doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, line);
-                }
-                y -= 14.4f;
             }
 
             for (int entryIndex = 0; entryIndex < entries.size(); entryIndex++) {
@@ -1619,7 +1633,7 @@ public final class A11yPdfDocument {
             List<TocEntry> entries = new ArrayList<>();
             int depth = Math.max(1, maxDepth);
             for (Element element : elements) {
-                if (element instanceof Heading heading && heading.level <= depth) {
+                if (element instanceof Heading heading && heading.includeInToc && heading.level <= depth) {
                     entries.add(new TocEntry(heading.level, heading.text));
                 }
             }
@@ -2974,13 +2988,15 @@ public final class A11yPdfDocument {
         private final BoxModel boxModel;
         private final float lineHeightMultiplier;
         private final TextStyle style;
+        private final boolean includeInToc;
 
-        private Heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style) {
+        private Heading(int level, String text, BoxModel boxModel, float lineHeightMultiplier, TextStyle style, boolean includeInToc) {
             this.level = level;
             this.text = text;
             this.boxModel = boxModel;
             this.lineHeightMultiplier = lineHeightMultiplier;
             this.style = style;
+            this.includeInToc = includeInToc;
         }
     }
 
