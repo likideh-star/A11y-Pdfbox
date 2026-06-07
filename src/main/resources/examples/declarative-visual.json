@@ -17,6 +17,7 @@
   "nodes": [
     {
       "title": "Document Outline",
+      "titleLevel": 1,
       "maxDepth": 2
     },
     {
