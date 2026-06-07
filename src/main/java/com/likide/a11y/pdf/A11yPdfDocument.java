@@ -2376,7 +2376,7 @@ public final class A11yPdfDocument {
                     if (lineIndex == 0) {
                         String marker = listItemPrefix(listBlock, itemIndex);
                         currentItemSlot = labelSlot;
-                        drawTaggedChunkedLine(cs, "Lbl", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
                         lineX += marker.length() * averageCharWidth;
                     } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
                         line = "  " + line;
@@ -2384,7 +2384,7 @@ public final class A11yPdfDocument {
                         lineX += listBlock.customIndentPt;
                     }
                     currentItemSlot = bodySlot;
-                    drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                    drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     y -= leading;
                 }
                 currentItemSlot = -1;
@@ -2445,7 +2445,7 @@ public final class A11yPdfDocument {
                         currentItemSlot = labelSlot;
                         try (PDPageContentStream cs = new PDPageContentStream(
                                 doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                            drawTaggedChunkedLine(cs, "Lbl", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+                            drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
                         }
                         lineX += marker.length() * averageCharWidth;
                     } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
@@ -2456,7 +2456,7 @@ public final class A11yPdfDocument {
                     currentItemSlot = bodySlot;
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     }
                     y -= 14.4f;
                 }
