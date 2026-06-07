@@ -26,6 +26,7 @@ class DocumentModelConverterTest {
         assertEquals(1, model.nodes().size());
         IntermediateParagraph converted = (IntermediateParagraph) model.nodes().get(0);
         assertEquals(1.2f, converted.style().lineHeightMultiplier(), 0.0001f);
+        assertEquals("LEFT", converted.style().textAlignment());
     }
 
     @Test
@@ -51,7 +52,14 @@ class DocumentModelConverterTest {
                 .pageSize(500.0f, 700.0f)
                 .pageMargins(10.0f, 11.0f, 12.0f, 13.0f)
                 .heading(2, "Heading", box, 1.5f)
-                .paragraph("Paragraph", box, 1.4f)
+                .paragraph(
+                    "Paragraph",
+                    box,
+                    1.4f,
+                    A11yPdfDocument.TextStyle.of(
+                        null,
+                        com.likide.a11y.pdf.fonts.FontVariant.REGULAR,
+                        A11yPdfDocument.TextAlignment.JUSTIFY))
                 .image("figure-id", "alt", false)
                 .unorderedList()
                 .item("one")
@@ -103,6 +111,7 @@ class DocumentModelConverterTest {
         paragraph.text = "Paragraph";
         paragraph.style = new DeclarativeTextStyle();
         paragraph.style.lineHeightMultiplier = 1.4f;
+        paragraph.style.alignment = "JUSTIFY";
         paragraph.boxModel = new DeclarativeBoxModel();
         paragraph.boxModel.marginTop = 1.0f;
         paragraph.boxModel.paddingTop = 2.0f;
@@ -146,6 +155,8 @@ class DocumentModelConverterTest {
         IntermediateDocument converted = A11yPdfDocument.fromDeclarative(declarative).toIntermediateModel();
 
         assertEquals(fluent, converted);
+        IntermediateParagraph convertedParagraph = (IntermediateParagraph) converted.nodes().get(1);
+        assertEquals("JUSTIFY", convertedParagraph.style().textAlignment());
     }
 
     @Test

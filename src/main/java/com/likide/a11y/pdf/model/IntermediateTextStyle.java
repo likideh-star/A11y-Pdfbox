@@ -4,9 +4,10 @@ public record IntermediateTextStyle(
         float lineHeightMultiplier,
                 IntermediateBoxModel boxModel,
                 String fontFamily,
-                String fontVariant) {
+                String fontVariant,
+                String textAlignment) {
 
         public IntermediateTextStyle(float lineHeightMultiplier, IntermediateBoxModel boxModel) {
-                this(lineHeightMultiplier, boxModel, null, null);
+                this(lineHeightMultiplier, boxModel, null, null, null);
         }
 }

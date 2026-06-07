@@ -375,6 +375,10 @@ public final class JsonParser {
         style.lineHeightMultiplier = floating(node, "lineHeightMultiplier");
         style.fontFamily = text(node, "fontFamily");
         style.fontVariant = text(node, "fontVariant");
+        style.alignment = text(node, "alignment");
+        if (style.alignment == null) {
+            style.alignment = text(node, "textAlign");
+        }
         return style;
     }
 

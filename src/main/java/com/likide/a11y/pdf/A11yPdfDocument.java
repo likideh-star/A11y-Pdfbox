@@ -301,9 +301,12 @@ public final class A11yPdfDocument {
 
     private static TextStyle fromIntermediateStyle(IntermediateTextStyle style, FontVariant defaultVariant) {
         if (style == null) {
-            return TextStyle.of(null, defaultVariant);
+            return TextStyle.of(null, defaultVariant, TextAlignment.LEFT);
         }
-        return TextStyle.of(style.fontFamily(), parseFontVariant(style.fontVariant(), defaultVariant));
+        return TextStyle.of(
+                style.fontFamily(),
+                parseFontVariant(style.fontVariant(), defaultVariant),
+                parseTextAlignment(style.textAlignment(), TextAlignment.LEFT));
     }
 
     private static A11yFontFamily buildFontFamilyFromConfig(DeclarativeFontConfig cfg) {
@@ -334,6 +337,18 @@ public final class A11yPdfDocument {
         String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase();
         try {
             return FontVariant.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private static TextAlignment parseTextAlignment(String rawValue, TextAlignment fallback) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return fallback;
+        }
+        String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        try {
+            return TextAlignment.valueOf(normalized);
         } catch (IllegalArgumentException ignored) {
             return fallback;
         }
@@ -434,6 +449,13 @@ public final class A11yPdfDocument {
         CENTER,
         RIGHT,
         ALTERNATE
+    }
+
+    public enum TextAlignment {
+        LEFT,
+        RIGHT,
+        CENTER,
+        JUSTIFY
     }
 
     public static final class Builder {
@@ -835,9 +857,12 @@ public final class A11yPdfDocument {
 
         private TextStyle normalizeStyle(TextStyle style, FontVariant fallbackVariant) {
             if (style == null) {
-                return TextStyle.of(null, fallbackVariant);
+                return TextStyle.of(null, fallbackVariant, TextAlignment.LEFT);
             }
-            return TextStyle.of(style.fontFamilyKey(), style.variant() == null ? fallbackVariant : style.variant());
+            return TextStyle.of(
+                    style.fontFamilyKey(),
+                    style.variant() == null ? fallbackVariant : style.variant(),
+                    style.textAlignment() == null ? TextAlignment.LEFT : style.textAlignment());
         }
 
         private FluentDocumentSnapshot toFluentSnapshot() {
@@ -857,7 +882,8 @@ public final class A11yPdfDocument {
                                             heading.boxModel.paddingLeft(),
                                     heading.boxModel.marginBottom()),
                                 heading.style.fontFamilyKey,
-                                heading.style.variant.name())));
+                                            heading.style.variant.name(),
+                                            heading.style.textAlignment.name())));
                 } else if (element instanceof Paragraph paragraph) {
                     nodes.add(new FluentParagraphNode(
                             paragraph.text,
@@ -871,7 +897,8 @@ public final class A11yPdfDocument {
                                             paragraph.boxModel.paddingLeft(),
                                     paragraph.boxModel.marginBottom()),
                                 paragraph.style.fontFamilyKey,
-                                paragraph.style.variant.name())));
+                                paragraph.style.variant.name(),
+                                paragraph.style.textAlignment.name())));
                 } else if (element instanceof Figure figure) {
                     nodes.add(new FluentFigureNode(figure.pathOrId, figure.altText, figure.decorative, figure.flowMode.name()));
                 } else if (element instanceof ListBlock listBlock) {
@@ -1452,10 +1479,17 @@ public final class A11yPdfDocument {
                     float resolvedContentWidth = resolveContentWidth(contentWidth, paragraph.boxModel);
                     float textX = x + paragraph.boxModel.paddingLeft();
                     y -= paragraph.boxModel.marginTop() + paragraph.boxModel.paddingTop();
+                    FontSelection selection = resolveFontSelection(fontRuntimes, paragraph.style, null, FontVariant.REGULAR);
+                    TextAlignment alignment = paragraph.style.textAlignment == null ? TextAlignment.LEFT : paragraph.style.textAlignment;
+                    List<String> lines = wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f);
                     beginTaggedMarkedContent(cs, StandardStructureTypes.P);
                     try {
-                        for (String line : wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f)) {
-                            drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                        for (int i = 0; i < lines.size(); i++) {
+                            String line = lines.get(i);
+                            boolean justifyLine = alignment == TextAlignment.JUSTIFY && i < lines.size() - 1;
+                            float alignedX = resolveParagraphLineX(textX, resolvedContentWidth, selection, fontSize, line, alignment, justifyLine);
+                            float wordSpacing = resolveParagraphWordSpacing(resolvedContentWidth, selection, fontSize, line, justifyLine);
+                            drawChunkedLine(cs, selection, fontSize, alignedX, y, line, wordSpacing);
                             y -= leading;
                         }
                     } finally {
@@ -1618,6 +1652,8 @@ public final class A11yPdfDocument {
             float leading = fontSize * paragraph.lineHeightMultiplier;
             float resolvedContentWidth = resolveContentWidth(activeColumnWidth, paragraph.boxModel);
             List<String> lines = wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f);
+            FontSelection selection = resolveFontSelection(fontRuntimes, paragraph.style, null, FontVariant.REGULAR);
+            TextAlignment alignment = paragraph.style.textAlignment == null ? TextAlignment.LEFT : paragraph.style.textAlignment;
 
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
@@ -1646,7 +1682,10 @@ public final class A11yPdfDocument {
                                 break;
                             }
                             String line = lines.get(lineIndex++);
-                            drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                            boolean justifyLine = alignment == TextAlignment.JUSTIFY && lineIndex < lines.size();
+                            float alignedX = resolveParagraphLineX(textX, resolvedContentWidth, selection, fontSize, line, alignment, justifyLine);
+                            float wordSpacing = resolveParagraphWordSpacing(resolvedContentWidth, selection, fontSize, line, justifyLine);
+                            drawChunkedLine(cs, selection, fontSize, alignedX, y, line, wordSpacing);
                             y -= leading;
                         }
                     } finally {
@@ -2431,6 +2470,57 @@ public final class A11yPdfDocument {
                 float y,
                 String text) throws IOException {
             FontSelection selection = resolveFontSelection(fontRuntimes, nodeStyle, parentStyle, fallbackVariant);
+            drawChunkedLine(cs, selection, fontSize, x, y, text, 0.0f);
+        }
+
+        private void drawChunkedLine(
+                PDPageContentStream cs,
+                FontSelection selection,
+                float fontSize,
+                float x,
+                float y,
+                String text,
+                float wordSpacing) throws IOException {
+            if (wordSpacing > 0.0f && text != null && text.indexOf(' ') >= 0) {
+                drawChunkedLineWithManualWordSpacing(cs, selection, fontSize, x, y, text, wordSpacing);
+                return;
+            }
+
+            drawChunkedLineNoSpacing(cs, selection, fontSize, x, y, text);
+        }
+
+        private void drawChunkedLineWithManualWordSpacing(
+                PDPageContentStream cs,
+                FontSelection selection,
+                float fontSize,
+                float x,
+                float y,
+                String text,
+                float wordSpacing) throws IOException {
+            float cursorX = x;
+            String[] tokens = text.split(" ", -1);
+            float baseSpaceWidth = measureChunkedTextWidth(selection.runtime(), selection.variant(), fontSize, " ");
+
+            for (int i = 0; i < tokens.length; i++) {
+                String token = tokens[i];
+                if (!token.isEmpty()) {
+                    drawChunkedLineNoSpacing(cs, selection, fontSize, cursorX, y, token);
+                    cursorX += measureChunkedTextWidth(selection.runtime(), selection.variant(), fontSize, token);
+                }
+
+                if (i < tokens.length - 1) {
+                    cursorX += baseSpaceWidth + wordSpacing;
+                }
+            }
+        }
+
+        private void drawChunkedLineNoSpacing(
+                PDPageContentStream cs,
+                FontSelection selection,
+                float fontSize,
+                float x,
+                float y,
+                String text) throws IOException {
             float cursorX = x;
             for (FontRuntime.FontChunk chunk : selection.runtime().chunkText(text, selection.variant())) {
                 if (chunk.text().isEmpty()) {
@@ -2444,6 +2534,56 @@ public final class A11yPdfDocument {
                 cs.endText();
                 cursorX += font.getStringWidth(chunk.text()) / 1000.0f * fontSize;
             }
+        }
+
+        private float resolveParagraphLineX(
+                float baseX,
+                float availableWidth,
+                FontSelection selection,
+                float fontSize,
+                String line,
+                TextAlignment alignment,
+                boolean justifyLine) throws IOException {
+            if (justifyLine || alignment == null || alignment == TextAlignment.LEFT || line == null || line.isBlank()) {
+                return baseX;
+            }
+            float textWidth = measureChunkedTextWidth(selection.runtime(), selection.variant(), fontSize, line);
+            return switch (alignment) {
+                case RIGHT -> baseX + Math.max(0.0f, availableWidth - textWidth);
+                case CENTER -> baseX + Math.max(0.0f, (availableWidth - textWidth) / 2.0f);
+                default -> baseX;
+            };
+        }
+
+        private float resolveParagraphWordSpacing(
+                float availableWidth,
+                FontSelection selection,
+                float fontSize,
+                String line,
+                boolean justifyLine) throws IOException {
+            if (!justifyLine || line == null || line.isBlank()) {
+                return 0.0f;
+            }
+            int spaces = countJustifiableSpaces(line);
+            if (spaces <= 0) {
+                return 0.0f;
+            }
+            float textWidth = measureChunkedTextWidth(selection.runtime(), selection.variant(), fontSize, line);
+            float delta = availableWidth - textWidth;
+            if (delta <= 0.0f) {
+                return 0.0f;
+            }
+            return delta / spaces;
+        }
+
+        private int countJustifiableSpaces(String line) {
+            int spaces = 0;
+            for (int i = 0; i < line.length(); i++) {
+                if (line.charAt(i) == ' ') {
+                    spaces++;
+                }
+            }
+            return spaces;
         }
 
         private void drawTaggedChunkedLine(
@@ -3557,18 +3697,24 @@ public final class A11yPdfDocument {
     public static final class TextStyle {
         private final String fontFamilyKey;
         private final FontVariant variant;
+        private final TextAlignment textAlignment;
 
-        private TextStyle(String fontFamilyKey, FontVariant variant) {
+        private TextStyle(String fontFamilyKey, FontVariant variant, TextAlignment textAlignment) {
             this.fontFamilyKey = fontFamilyKey;
             this.variant = variant;
+            this.textAlignment = textAlignment == null ? TextAlignment.LEFT : textAlignment;
         }
 
         public static TextStyle of(String fontFamilyKey, FontVariant variant) {
-            return new TextStyle(fontFamilyKey, variant);
+            return new TextStyle(fontFamilyKey, variant, TextAlignment.LEFT);
+        }
+
+        public static TextStyle of(String fontFamilyKey, FontVariant variant, TextAlignment textAlignment) {
+            return new TextStyle(fontFamilyKey, variant, textAlignment);
         }
 
         public static TextStyle none() {
-            return new TextStyle(null, null);
+            return new TextStyle(null, null, TextAlignment.LEFT);
         }
 
         public String fontFamilyKey() {
@@ -3577,6 +3723,10 @@ public final class A11yPdfDocument {
 
         public FontVariant variant() {
             return variant;
+        }
+
+        public TextAlignment textAlignment() {
+            return textAlignment;
         }
     }
 

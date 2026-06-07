@@ -5,4 +5,5 @@ public final class DeclarativeTextStyle {
     public Float lineHeightMultiplier;
     public String fontFamily;
     public String fontVariant;
+    public String alignment;
 }

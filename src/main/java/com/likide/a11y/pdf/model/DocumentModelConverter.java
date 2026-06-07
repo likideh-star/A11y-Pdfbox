@@ -273,11 +273,14 @@ public final class DocumentModelConverter {
             throw new ValidationException("lineHeight multiplier must be > 0");
         }
 
+        String alignment = normalizeTextAlignment(style == null ? null : style.alignment);
+
         return new IntermediateTextStyle(
                 lineHeight,
                 resolveBoxModel(boxModel),
                 style == null ? null : style.fontFamily,
-                style == null ? null : style.fontVariant);
+                style == null ? null : style.fontVariant,
+                alignment);
     }
 
     private static IntermediateTextStyle resolveStyle(DeclarativeTextStyle style) {
@@ -301,6 +304,13 @@ public final class DocumentModelConverter {
 
     private static float nullAsZero(Float value) {
         return value == null ? 0.0f : value;
+    }
+
+    private static String normalizeTextAlignment(String alignment) {
+        if (isBlank(alignment)) {
+            return "LEFT";
+        }
+        return alignment.trim().replace('-', '_').replace(' ', '_').toUpperCase();
     }
 
     private static List<IntermediateListItem> convertFluentListItems(List<FluentListItemNode> itemNodes) {
