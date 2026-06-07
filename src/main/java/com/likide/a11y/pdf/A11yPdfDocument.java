@@ -31,6 +31,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDMetadata;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDMarkedContentReference;
+import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDObjectReference;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement;
 import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureTreeRoot;
 import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
@@ -507,6 +508,9 @@ public final class A11yPdfDocument {
         private final Map<Integer, TableSlotPlan> tableSlotPlans = new LinkedHashMap<>();
         private final Map<Integer, TocSlotPlan> tocSlotPlans = new LinkedHashMap<>();
         private final List<TocLinkAnnotationPlan> tocLinkAnnotationPlans = new ArrayList<>();
+        private final Map<TocLinkSlotKey, List<PDAnnotationLink>> tocLinkAnnotationsBySlot = new LinkedHashMap<>();
+        private final Map<Integer, PDStructureElement> objectParentTreeEntries = new LinkedHashMap<>();
+        private int nextAnnotationStructParent = 100000;
         private final List<TocPageSpan> tocPageSpans = new ArrayList<>();
         private Map<Integer, Integer> resolvedTocHeadingPages = Map.of();
         private final Map<Integer, Integer> collectedHeadingPageNumbers = new LinkedHashMap<>();
@@ -1194,6 +1198,9 @@ public final class A11yPdfDocument {
             tableSlotPlans.clear();
             tocSlotPlans.clear();
             tocLinkAnnotationPlans.clear();
+            tocLinkAnnotationsBySlot.clear();
+            objectParentTreeEntries.clear();
+            nextAnnotationStructParent = 100000;
             tocPageSpans.clear();
             collectedHeadingPageNumbers.clear();
             listItemSlotPlans.clear();
@@ -1358,9 +1365,9 @@ public final class A11yPdfDocument {
                 y = renderElement(doc, page, fontRuntimes, element, activeX, y, activeColumnWidth);
             }
 
+            applyTocLinkAnnotations(doc);
             buildStructureTree(doc);
             renderArtifactPageChrome(doc, fontRuntimes);
-            applyTocLinkAnnotations(doc);
         }
 
         private boolean containsTocBlock() {
@@ -2077,11 +2084,20 @@ public final class A11yPdfDocument {
                 float x,
                 float y,
                 float contentWidth) throws IOException {
+            String structureTag = tocBlock.itemMode == TocItemMode.LINK ? StandardStructureTypes.LINK : "Reference";
             try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, displayLine);
+                drawTaggedChunkedLine(cs, structureTag, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, displayLine);
             }
             if (!suppressTocLinkAnnotations && tocBlock.itemMode == TocItemMode.LINK) {
-                tocLinkAnnotationPlans.add(new TocLinkAnnotationPlan(page, x, y - 2.0f, contentWidth, 13.2f, targetPageNumber));
+                tocLinkAnnotationPlans.add(new TocLinkAnnotationPlan(
+                        page,
+                        x,
+                        y - 2.0f,
+                        contentWidth,
+                        13.2f,
+                        targetPageNumber,
+                        currentElementIndex,
+                        currentItemSlot));
             }
         }
 
@@ -2110,6 +2126,11 @@ public final class A11yPdfDocument {
                 action.setDestination(destination);
                 link.setAction(action);
                 plan.page().getAnnotations().add(link);
+                if (plan.elementIndex() >= 0 && plan.referenceSlot() >= 0) {
+                    tocLinkAnnotationsBySlot
+                            .computeIfAbsent(new TocLinkSlotKey(plan.elementIndex(), plan.referenceSlot()), key -> new ArrayList<>())
+                            .add(link);
+                }
             }
         }
 
@@ -3211,10 +3232,22 @@ public final class A11yPdfDocument {
                 nums.add(pageArray);
             }
 
+            for (Map.Entry<Integer, PDStructureElement> entry : objectParentTreeEntries.entrySet()) {
+                nums.add(COSInteger.get(entry.getKey()));
+                nums.add(entry.getValue().getCOSObject());
+            }
+
             COSDictionary parentTreeDict = new COSDictionary();
             parentTreeDict.setItem(COSName.NUMS, nums);
             structRoot.getCOSObject().setItem(COSName.getPDFName("ParentTree"), parentTreeDict);
-            structRoot.getCOSObject().setInt(COSName.getPDFName("ParentTreeNextKey"), pageToKey.size());
+            int maxKey = -1;
+            for (Integer value : pageToKey.values()) {
+                maxKey = Math.max(maxKey, value);
+            }
+            for (Integer key : objectParentTreeEntries.keySet()) {
+                maxKey = Math.max(maxKey, key);
+            }
+            structRoot.getCOSObject().setInt(COSName.getPDFName("ParentTreeNextKey"), maxKey + 1);
         }
 
         private void attachMCRs(PDStructureElement elem, int elementIndex) {
@@ -3376,10 +3409,33 @@ public final class A11yPdfDocument {
             for (int i = 0; i < entries.size(); i++) {
                 PDStructureElement toci = new PDStructureElement("TOCI", toc);
                 toc.appendKid(toci);
-                PDStructureElement reference = new PDStructureElement("Reference", toci);
-                toci.appendKid(reference);
-                if (slotPlan != null && i < slotPlan.referenceSlots().size()) {
-                    attachTocReferenceMCRs(reference, elemIdx, slotPlan.referenceSlots().get(i));
+                if (slotPlan == null || i >= slotPlan.referenceSlots().size()) {
+                    continue;
+                }
+
+                int referenceSlot = slotPlan.referenceSlots().get(i);
+                if (tocBlock.itemMode == TocItemMode.LINK) {
+                    PDStructureElement linkElem = new PDStructureElement(StandardStructureTypes.LINK, toci);
+                    toci.appendKid(linkElem);
+
+                    List<PDAnnotationLink> annotations = tocLinkAnnotationsBySlot.getOrDefault(
+                            new TocLinkSlotKey(elemIdx, referenceSlot),
+                            List.of());
+                    for (PDAnnotationLink annotation : annotations) {
+                        int structParent = nextAnnotationStructParent++;
+                        annotation.getCOSObject().setInt(COSName.STRUCT_PARENT, structParent);
+                        objectParentTreeEntries.put(structParent, linkElem);
+
+                        PDObjectReference objRef = new PDObjectReference();
+                        objRef.setReferencedObject(annotation);
+                        linkElem.appendKid(objRef);
+                    }
+
+                    attachTocReferenceMCRs(linkElem, elemIdx, referenceSlot);
+                } else {
+                    PDStructureElement reference = new PDStructureElement("Reference", toci);
+                    toci.appendKid(reference);
+                    attachTocReferenceMCRs(reference, elemIdx, referenceSlot);
                 }
             }
             return toc;
@@ -3396,7 +3452,7 @@ public final class A11yPdfDocument {
                 return;
             }
 
-            FontRuntime artifactRuntime = fontRuntimes.getOrDefault("default", null);
+            FontRuntime artifactRuntime = resolveArtifactFontRuntime(fontRuntimes);
             if (artifactRuntime == null) {
                 return;
             }
@@ -3456,6 +3512,27 @@ public final class A11yPdfDocument {
                     contentStream.endMarkedContent();
                 }
             }
+        }
+
+        private FontRuntime resolveArtifactFontRuntime(Map<String, FontRuntime> fontRuntimes) {
+            FontRuntime defaultRuntime = fontRuntimes.getOrDefault("default", null);
+            A11yFontFamily defaultFamily = fontFamilies.get("default");
+            if (defaultRuntime != null && defaultFamily != null && !defaultFamily.regular().isStandard14()) {
+                return defaultRuntime;
+            }
+
+            for (Map.Entry<String, A11yFontFamily> entry : fontFamilies.entrySet()) {
+                A11yFontFamily family = entry.getValue();
+                if (family == null || family.regular().isStandard14()) {
+                    continue;
+                }
+                FontRuntime runtime = fontRuntimes.get(entry.getKey());
+                if (runtime != null) {
+                    return runtime;
+                }
+            }
+
+            return defaultRuntime;
         }
 
         private void drawArtifactDecorations(PDPageContentStream contentStream) throws IOException {
@@ -4107,7 +4184,18 @@ public final class A11yPdfDocument {
     private record TocPageSpan(int elementIndex, int pageCount) {
     }
 
-    private record TocLinkAnnotationPlan(PDPage page, float x, float y, float width, float height, int targetPageNumber) {
+        private record TocLinkAnnotationPlan(
+            PDPage page,
+            float x,
+            float y,
+            float width,
+            float height,
+            int targetPageNumber,
+            int elementIndex,
+            int referenceSlot) {
+        }
+
+        private record TocLinkSlotKey(int elementIndex, int referenceSlot) {
     }
 
     private record ListItemSlotPlan(int labelSlot, int bodySlot) {
