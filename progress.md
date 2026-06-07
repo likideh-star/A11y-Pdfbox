@@ -1,6 +1,6 @@
 # Milestone Progress Tracker
 
-Last updated: 2026-06-05
+Last updated: 2026-06-07
 Reference source: [task.md](task.md)
 
 ## Status Legend
@@ -11,7 +11,7 @@ Reference source: [task.md](task.md)
 
 ## Overall Snapshot
 
-- Done: 12
+- Done: 13
 - Partially Done: 2
 - Not Done: 1
 
@@ -32,7 +32,7 @@ Reference source: [task.md](task.md)
 | 11        | Tables with Semantic Headers and Splitting            | Done           | Table rendering now uses wrapped cell text with dynamic row heights, robust cross-page splitting including over-tall row chunking, repeated headers on continued pages, and semantic structure-tree emission with `Table/THead/TBody/TR/TH/TD` tags covered by layout regressions.                                                          |
 | 12        | Figures and Image Flow Modes                          | Done           | Figure nodes now support flow modes (`INLINE`, `SPAN_ALL_COLUMNS`) across declarative/fluent/intermediate models; rendering loads real images when available, scales them to fit available width/height, falls back to placeholder frames when sources are missing, and includes pagination-aware flow behavior with dedicated regressions. |
 | 13        | TOC and Structural References                         | Done           | TOC now renders heading-derived entries up to configured `maxDepth` with flow-aware pagination across columns/pages, and structure-tree output now emits `TOC` entries with nested `TOCI/Reference` nodes to preserve semantic references to document headings.                                                                             |
-| 14        | Artifact Handling and Page Chrome                     | Partially Done | Artifact marked-content marker exists; full header/footer/page-number rendering support is not complete.                                                                                                                                                                                                                                    |
+| 14        | Artifact Handling and Page Chrome                     | Done           | Artifact marked-content page chrome is implemented, including headers, footers, page numbers, links, images, alternate page-number alignment, and declarative JSON parsing/rendering support.                                                                                                                                               |
 | 15        | External Compliance Verification and Regression Suite | Partially Done | Internal JUnit checks exist; external validator integration (e.g., veraPDF) and broader regression corpus are missing.                                                                                                                                                                                                                      |
 | 16        | Performance, Hardening, and Documentation             | Not Done       | No benchmarking/stress suite/contributor-focused hardening artifacts yet.                                                                                                                                                                                                                                                                   |
 

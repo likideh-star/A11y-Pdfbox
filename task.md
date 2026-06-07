@@ -2,7 +2,7 @@
 
 This document converts the PRD into execution milestones with concrete deliverables, scope boundaries, and exit criteria for the accessible PDF library built on PDFBox 3.0.x.
 
-## Current Status (2026-06-05)
+## Current Status (2026-06-07)
 
 1. Milestone 1: Done.
 2. Milestone 2: Done.
@@ -17,6 +17,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 11. Milestone 11: Done.
 12. Milestone 12: Done.
 13. Milestone 13: Done.
+14. Milestone 14: Done.
 
 ### Latest Completed Work
 
@@ -48,7 +49,7 @@ This document converts the PRD into execution milestones with concrete deliverab
 
 ### Next Focus
 
-1. Continue with Milestone 14 artifact handling and page chrome.
+1. Continue with Milestone 15 external compliance verification and regression suite.
 
 ## Planning Principles
 
