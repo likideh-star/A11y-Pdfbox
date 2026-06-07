@@ -6,6 +6,34 @@
     "columns": 1,
     "columnGap": 0
   },
+   "pageChrome": {
+    "headerText": {
+      "text": "HeaderText",
+      "alignment": "LEFT",
+      "fontSize": 9
+    },
+    "headerLink": {
+      "text": "HeaderLink",
+      "url": "https://example.com/header",
+      "alignment": "CENTER",
+      "fontSize": 9
+    },
+    "footerLink": {
+      "text": "FooterLink",
+      "url": "https://example.com/footer",
+      "alignment": "RIGHT",
+      "fontSize": 9
+    },
+    "footerText": {
+      "text": "FooterText",
+      "alignment": "LEFT",
+      "fontSize": 9
+    },
+    "pageNumber": {
+      "pattern": "Page %d of %d",
+      "alignment": "RIGHT"
+    }
+  },
   "fonts": {
     "default": {
       "regular":    "src/main/resources/fonts/Inter-Regular.ttf",

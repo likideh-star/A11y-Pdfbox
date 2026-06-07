@@ -20,5 +20,6 @@ public final class DeclarativeDocument {
      * Each value specifies paths to TrueType font files for each variant.
      */
     public final Map<String, DeclarativeFontConfig> fonts = new LinkedHashMap<>();
+    public DeclarativePageChrome pageChrome;
     public final List<DeclarativeNode> nodes = new ArrayList<>();
 }

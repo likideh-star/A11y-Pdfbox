@@ -36,18 +36,23 @@ import org.apache.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructur
 import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList;
 import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructureTypes;
 import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDBorderStyleDictionary;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
 import com.likide.a11y.pdf.fonts.A11yFontFamily;
 import com.likide.a11y.pdf.fonts.FontResolutionException;
 import com.likide.a11y.pdf.fonts.FontRuntime;
 import com.likide.a11y.pdf.fonts.FontVariant;
+import com.likide.a11y.pdf.model.DeclarativeChromeImage;
+import com.likide.a11y.pdf.model.DeclarativeChromeLink;
+import com.likide.a11y.pdf.model.DeclarativeChromeText;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeFontConfig;
+import com.likide.a11y.pdf.model.DeclarativePageChrome;
 import com.likide.a11y.pdf.model.DocumentModelConverter;
 import com.likide.a11y.pdf.model.FluentCustomNode;
 import com.likide.a11y.pdf.model.FluentDocumentSnapshot;
@@ -120,6 +125,8 @@ public final class A11yPdfDocument {
                 }
             }
         }
+
+        applyDeclarativePageChrome(document.pageChrome, builder);
 
         for (IntermediateNode node : model.nodes()) {
             if (node instanceof IntermediateHeading heading) {
@@ -194,6 +201,92 @@ public final class A11yPdfDocument {
         }
 
         return builder;
+    }
+
+    private static void applyDeclarativePageChrome(DeclarativePageChrome pageChrome, Builder builder) {
+        if (pageChrome == null) {
+            return;
+        }
+
+        if (pageChrome.headerText != null) {
+            applyChromeText(pageChrome.headerText, true, builder);
+        }
+        if (pageChrome.headerLink != null) {
+            applyChromeLink(pageChrome.headerLink, true, builder);
+        }
+        if (pageChrome.headerImage != null) {
+            applyChromeImage(pageChrome.headerImage, true, builder);
+        }
+        if (pageChrome.footerText != null) {
+            applyChromeText(pageChrome.footerText, false, builder);
+        }
+        if (pageChrome.footerLink != null) {
+            applyChromeLink(pageChrome.footerLink, false, builder);
+        }
+        if (pageChrome.footerImage != null) {
+            applyChromeImage(pageChrome.footerImage, false, builder);
+        }
+        if (pageChrome.pageNumber != null) {
+            PageNumberAlignment alignment = parsePageNumberAlignment(pageChrome.pageNumber.alignment);
+            if (pageChrome.pageNumber.pattern != null && !pageChrome.pageNumber.pattern.isBlank()) {
+                builder.artifactPageNumber(pageChrome.pageNumber.pattern, alignment);
+            }
+        }
+    }
+
+    private static void applyChromeText(DeclarativeChromeText chromeText, boolean header, Builder builder) {
+        String text = chromeText.text == null ? "" : chromeText.text;
+        ChromeAlignment alignment = parseChromeAlignment(chromeText.alignment);
+        if (header) {
+            builder.artifactHeaderText(text, alignment);
+        } else {
+            builder.artifactFooterText(text, alignment);
+        }
+    }
+
+    private static void applyChromeLink(DeclarativeChromeLink chromeLink, boolean header, Builder builder) {
+        String text = chromeLink.text == null ? "" : chromeLink.text;
+        String url = chromeLink.url == null ? "" : chromeLink.url;
+        ChromeAlignment alignment = parseChromeAlignment(chromeLink.alignment);
+        if (header) {
+            builder.artifactHeaderLink(text, url, alignment);
+        } else {
+            builder.artifactFooterLink(text, url, alignment);
+        }
+    }
+
+    private static void applyChromeImage(DeclarativeChromeImage chromeImage, boolean header, Builder builder) {
+        String pathOrId = chromeImage.pathOrId == null ? "" : chromeImage.pathOrId;
+        float widthPt = chromeImage.widthPt == null ? 36.0f : chromeImage.widthPt.floatValue();
+        float heightPt = chromeImage.heightPt == null ? 18.0f : chromeImage.heightPt.floatValue();
+        ChromeAlignment alignment = parseChromeAlignment(chromeImage.alignment);
+        if (header) {
+            builder.artifactHeaderImage(pathOrId, widthPt, heightPt, alignment);
+        } else {
+            builder.artifactFooterImage(pathOrId, widthPt, heightPt, alignment);
+        }
+    }
+
+    private static ChromeAlignment parseChromeAlignment(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return ChromeAlignment.CENTER;
+        }
+        try {
+            return ChromeAlignment.valueOf(rawValue.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return ChromeAlignment.CENTER;
+        }
+    }
+
+    private static PageNumberAlignment parsePageNumberAlignment(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return PageNumberAlignment.CENTER;
+        }
+        try {
+            return PageNumberAlignment.valueOf(rawValue.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return PageNumberAlignment.CENTER;
+        }
     }
 
     private static BoxModel fromIntermediateBoxModel(IntermediateBoxModel boxModel) {
@@ -331,6 +424,18 @@ public final class A11yPdfDocument {
         SPAN_ALL_COLUMNS
     }
 
+    public enum ChromeAlignment {
+        LEFT,
+        CENTER,
+        RIGHT
+    }
+
+    public enum PageNumberAlignment {
+        CENTER,
+        RIGHT,
+        ALTERNATE
+    }
+
     public static final class Builder {
         private String lang = "en-US";
         private String title = "Untitled";
@@ -343,8 +448,14 @@ public final class A11yPdfDocument {
         private float marginRight = DEFAULT_PAGE_MARGIN;
         private float marginBottom = DEFAULT_PAGE_MARGIN;
         private float marginLeft = DEFAULT_PAGE_MARGIN;
-        private String artifactHeaderText;
+        private ArtifactText headerTextArtifact;
+        private ArtifactText footerTextArtifact;
+        private ArtifactLink headerLinkArtifact;
+        private ArtifactLink footerLinkArtifact;
+        private ArtifactImage headerImageArtifact;
+        private ArtifactImage footerImageArtifact;
         private String artifactFooterPattern;
+        private PageNumberAlignment pageNumberAlignment = PageNumberAlignment.CENTER;
         private final List<String> preflightWarnings = new ArrayList<>();
         private int currentElementIndex = -1;
         private PDPage currentRenderPage = null;
@@ -375,8 +486,8 @@ public final class A11yPdfDocument {
 
         public Builder title(String value) {
             this.title = value;
-            if (this.artifactHeaderText == null || this.artifactHeaderText.isBlank()) {
-                this.artifactHeaderText = value;
+            if (this.headerTextArtifact == null || this.headerTextArtifact.text().isBlank()) {
+                this.headerTextArtifact = new ArtifactText(value, ChromeAlignment.CENTER, 9.0f);
             }
             return this;
         }
@@ -627,19 +738,59 @@ public final class A11yPdfDocument {
         }
 
         public Builder artifactHeaderFooter(String pageTextPattern) {
-            this.artifactHeaderText = title;
+            this.headerTextArtifact = new ArtifactText(title, ChromeAlignment.CENTER, 9.0f);
             this.artifactFooterPattern = pageTextPattern;
             return this;
         }
 
         public Builder artifactHeader(String headerText) {
-            this.artifactHeaderText = headerText;
+            this.headerTextArtifact = new ArtifactText(headerText, ChromeAlignment.CENTER, 9.0f);
             return this;
         }
 
         public Builder artifactFooter(String pageTextPattern) {
             this.artifactFooterPattern = pageTextPattern;
             return this;
+        }
+
+        public Builder artifactHeaderText(String text, ChromeAlignment alignment) {
+            this.headerTextArtifact = new ArtifactText(text, defaultAlignment(alignment), 9.0f);
+            return this;
+        }
+
+        public Builder artifactFooterText(String text, ChromeAlignment alignment) {
+            this.footerTextArtifact = new ArtifactText(text, defaultAlignment(alignment), 9.0f);
+            return this;
+        }
+
+        public Builder artifactHeaderLink(String text, String url, ChromeAlignment alignment) {
+            this.headerLinkArtifact = new ArtifactLink(text, url, defaultAlignment(alignment), 9.0f);
+            return this;
+        }
+
+        public Builder artifactFooterLink(String text, String url, ChromeAlignment alignment) {
+            this.footerLinkArtifact = new ArtifactLink(text, url, defaultAlignment(alignment), 9.0f);
+            return this;
+        }
+
+        public Builder artifactHeaderImage(String pathOrId, float widthPt, float heightPt, ChromeAlignment alignment) {
+            this.headerImageArtifact = new ArtifactImage(pathOrId, defaultAlignment(alignment), widthPt, heightPt, null);
+            return this;
+        }
+
+        public Builder artifactFooterImage(String pathOrId, float widthPt, float heightPt, ChromeAlignment alignment) {
+            this.footerImageArtifact = new ArtifactImage(pathOrId, defaultAlignment(alignment), widthPt, heightPt, null);
+            return this;
+        }
+
+        public Builder artifactPageNumber(String pattern, PageNumberAlignment alignment) {
+            this.artifactFooterPattern = pattern;
+            this.pageNumberAlignment = alignment == null ? PageNumberAlignment.CENTER : alignment;
+            return this;
+        }
+
+        private ChromeAlignment defaultAlignment(ChromeAlignment alignment) {
+            return alignment == null ? ChromeAlignment.CENTER : alignment;
         }
 
         public Builder defaultFontFamily(A11yFontFamily fontFamily) {
@@ -984,7 +1135,7 @@ public final class A11yPdfDocument {
 
             if (isTextOnlyFlow()) {
                 renderTextOnlyFromLayoutBlueprint(doc, fontRuntimes);
-                renderArtifactPageChrome(doc);
+                renderArtifactPageChrome(doc, fontRuntimes);
                 return;
             }
 
@@ -1134,7 +1285,7 @@ public final class A11yPdfDocument {
             }
 
             buildStructureTree(doc);
-            renderArtifactPageChrome(doc);
+            renderArtifactPageChrome(doc, fontRuntimes);
         }
 
         private boolean isTextOnlyFlow() {
@@ -2847,9 +2998,19 @@ public final class A11yPdfDocument {
             return toc;
         }
 
-        private void renderArtifactPageChrome(PDDocument doc) throws IOException {
-            if ((artifactHeaderText == null || artifactHeaderText.isBlank())
+        private void renderArtifactPageChrome(PDDocument doc, Map<String, FontRuntime> fontRuntimes) throws IOException {
+            if (headerTextArtifact == null
+                    && footerTextArtifact == null
+                    && headerLinkArtifact == null
+                    && footerLinkArtifact == null
+                    && headerImageArtifact == null
+                    && footerImageArtifact == null
                     && (artifactFooterPattern == null || artifactFooterPattern.isBlank())) {
+                return;
+            }
+
+            FontRuntime artifactRuntime = fontRuntimes.getOrDefault("default", null);
+            if (artifactRuntime == null) {
                 return;
             }
 
@@ -2865,15 +3026,44 @@ public final class A11yPdfDocument {
                     contentStream.beginMarkedContent(COSName.getPDFName("Artifact"));
                     drawArtifactDecorations(contentStream);
 
-                    if (artifactHeaderText != null && !artifactHeaderText.isBlank()) {
+                    if (headerImageArtifact != null) {
+                        drawArtifactImage(doc, page, contentStream, headerImageArtifact, true);
+                    }
+
+                    if (headerTextArtifact != null && headerTextArtifact.text() != null && !headerTextArtifact.text().isBlank()) {
                         float headerY = pageHeight - Math.max(10.0f, marginTop * 0.55f);
-                        drawArtifactCenteredText(contentStream, artifactHeaderText, 9.0f, headerY);
+                        drawArtifactAlignedText(contentStream, artifactRuntime, headerTextArtifact.text(), headerTextArtifact.fontSize(), headerY, headerTextArtifact.alignment());
+                    }
+
+                    if (headerLinkArtifact != null && headerLinkArtifact.text() != null && !headerLinkArtifact.text().isBlank()) {
+                        float headerLinkY = pageHeight - Math.max(20.0f, marginTop * 0.75f);
+                        drawArtifactLink(doc, page, contentStream, artifactRuntime, headerLinkArtifact, headerLinkY);
+                    }
+
+                    if (footerImageArtifact != null) {
+                        drawArtifactImage(doc, page, contentStream, footerImageArtifact, false);
+                    }
+
+                    if (footerTextArtifact != null && footerTextArtifact.text() != null && !footerTextArtifact.text().isBlank()) {
+                        float footerTextY = Math.max(16.0f, marginBottom * 0.72f);
+                        drawArtifactAlignedText(contentStream, artifactRuntime, footerTextArtifact.text(), footerTextArtifact.fontSize(), footerTextY, footerTextArtifact.alignment());
+                    }
+
+                    if (footerLinkArtifact != null && footerLinkArtifact.text() != null && !footerLinkArtifact.text().isBlank()) {
+                        float footerLinkY = Math.max(26.0f, marginBottom * 0.96f);
+                        drawArtifactLink(doc, page, contentStream, artifactRuntime, footerLinkArtifact, footerLinkY);
                     }
 
                     if (artifactFooterPattern != null && !artifactFooterPattern.isBlank()) {
                         String footerText = formatArtifactFooter(artifactFooterPattern, pageIndex + 1, totalPages);
                         float footerY = Math.max(8.0f, marginBottom * 0.45f);
-                        drawArtifactCenteredText(contentStream, footerText, 9.0f, footerY);
+                        drawArtifactAlignedText(
+                                contentStream,
+                                artifactRuntime,
+                                footerText,
+                                9.0f,
+                                footerY,
+                                resolvePageNumberAlignment(pageIndex + 1));
                     }
 
                     contentStream.endMarkedContent();
@@ -2894,18 +3084,117 @@ public final class A11yPdfDocument {
             contentStream.setStrokingColor(0.0f, 0.0f, 0.0f);
         }
 
-        private void drawArtifactCenteredText(PDPageContentStream contentStream, String text, float fontSize, float y) throws IOException {
+        private ChromeAlignment resolvePageNumberAlignment(int pageNumber) {
+            return switch (pageNumberAlignment) {
+                case CENTER -> ChromeAlignment.CENTER;
+                case RIGHT -> ChromeAlignment.RIGHT;
+                case ALTERNATE -> (pageNumber % 2 == 0) ? ChromeAlignment.LEFT : ChromeAlignment.RIGHT;
+            };
+        }
+
+        private void drawArtifactAlignedText(
+                PDPageContentStream contentStream,
+                FontRuntime fontRuntime,
+                String text,
+                float fontSize,
+                float y,
+                ChromeAlignment alignment) throws IOException {
             if (text == null || text.isBlank()) {
                 return;
             }
-            PDFont font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
-            float textWidth = font.getStringWidth(text) / 1000.0f * fontSize;
-            float x = (pageWidth - textWidth) / 2.0f;
-            contentStream.beginText();
-            contentStream.setFont(font, fontSize);
-            contentStream.newLineAtOffset(x, y);
-            contentStream.showText(text);
-            contentStream.endText();
+            float textWidth = measureChunkedTextWidth(fontRuntime, FontVariant.REGULAR, fontSize, text);
+            float x = resolveAlignedX(textWidth, alignment);
+            float cursorX = x;
+            for (FontRuntime.FontChunk chunk : fontRuntime.chunkText(text, FontVariant.REGULAR)) {
+                if (chunk.text().isEmpty()) {
+                    continue;
+                }
+                PDFont font = chunk.font();
+                contentStream.beginText();
+                contentStream.setFont(font, fontSize);
+                contentStream.newLineAtOffset(cursorX, y);
+                contentStream.showText(chunk.text());
+                contentStream.endText();
+                cursorX += font.getStringWidth(chunk.text()) / 1000.0f * fontSize;
+            }
+        }
+
+        private void drawArtifactLink(
+                PDDocument doc,
+                PDPage page,
+                PDPageContentStream contentStream,
+                FontRuntime fontRuntime,
+                ArtifactLink link,
+                float y) throws IOException {
+            float textWidth = measureChunkedTextWidth(fontRuntime, FontVariant.REGULAR, link.fontSize(), link.text());
+            float x = resolveAlignedX(textWidth, link.alignment());
+            drawArtifactAlignedText(contentStream, fontRuntime, link.text(), link.fontSize(), y, link.alignment());
+            if (link.url() != null && !link.url().isBlank()) {
+                addLinkAnnotation(page, x, y - 2.0f, textWidth, link.fontSize() + 4.0f, link.url());
+            }
+        }
+
+        private void drawArtifactImage(
+                PDDocument doc,
+                PDPage page,
+                PDPageContentStream contentStream,
+                ArtifactImage image,
+                boolean headerRegion) throws IOException {
+            if (image.pathOrId() == null || image.pathOrId().isBlank()) {
+                return;
+            }
+            PDImageXObject imageObject = loadFigureImage(doc, image.pathOrId());
+            if (imageObject == null) {
+                return;
+            }
+            float imageWidth = Math.max(1.0f, image.widthPt());
+            float imageHeight = Math.max(1.0f, image.heightPt());
+            float x = resolveAlignedX(imageWidth, image.alignment());
+            float y = headerRegion
+                    ? pageHeight - Math.max(24.0f, marginTop) - imageHeight
+                    : Math.max(24.0f, marginBottom * 0.9f);
+            contentStream.drawImage(imageObject, x, y, imageWidth, imageHeight);
+            if (image.linkUrl() != null && !image.linkUrl().isBlank()) {
+                addLinkAnnotation(page, x, y, imageWidth, imageHeight, image.linkUrl());
+            }
+        }
+
+        private void addLinkAnnotation(PDPage page, float x, float y, float width, float height, String url) throws IOException {
+            PDAnnotationLink link = new PDAnnotationLink();
+            PDRectangle rect = new PDRectangle();
+            rect.setLowerLeftX(x);
+            rect.setLowerLeftY(y);
+            rect.setUpperRightX(x + Math.max(1.0f, width));
+            rect.setUpperRightY(y + Math.max(1.0f, height));
+            link.setRectangle(rect);
+
+            PDBorderStyleDictionary border = new PDBorderStyleDictionary();
+            border.setWidth(0);
+            link.setBorderStyle(border);
+
+            PDActionURI action = new PDActionURI();
+            action.setURI(url);
+            link.setAction(action);
+            page.getAnnotations().add(link);
+        }
+
+        private float resolveAlignedX(float elementWidth, ChromeAlignment alignment) {
+            return switch (alignment == null ? ChromeAlignment.CENTER : alignment) {
+                case LEFT -> marginLeft;
+                case CENTER -> (pageWidth - elementWidth) / 2.0f;
+                case RIGHT -> pageWidth - marginRight - elementWidth;
+            };
+        }
+
+        private float measureChunkedTextWidth(FontRuntime fontRuntime, FontVariant variant, float fontSize, String text) throws IOException {
+            float width = 0.0f;
+            for (FontRuntime.FontChunk chunk : fontRuntime.chunkText(text, variant)) {
+                if (chunk.text().isEmpty()) {
+                    continue;
+                }
+                width += chunk.font().getStringWidth(chunk.text()) / 1000.0f * fontSize;
+            }
+            return width;
         }
 
         private String formatArtifactFooter(String pattern, int pageNumber, int totalPages) {
@@ -3415,6 +3704,15 @@ public final class A11yPdfDocument {
     }
 
     private record ListItemSlotPlan(int labelSlot, int bodySlot) {
+    }
+
+    private record ArtifactText(String text, ChromeAlignment alignment, float fontSize) {
+    }
+
+    private record ArtifactLink(String text, String url, ChromeAlignment alignment, float fontSize) {
+    }
+
+    private record ArtifactImage(String pathOrId, ChromeAlignment alignment, float widthPt, float heightPt, String linkUrl) {
     }
 
         private record FigureRenderPlan(

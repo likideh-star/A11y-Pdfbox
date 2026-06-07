@@ -24,7 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
-import com.likide.a11y.pdf.json.JsonParser;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
@@ -433,7 +432,7 @@ class A11yPdfDocumentLayoutTest {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("examples/article-style.json")) {
             assertTrue(in != null, "article-style example resource must be present");
 
-            DeclarativeDocument doc = JsonParser.parse(in);
+            DeclarativeDocument doc = com.likide.a11y.pdf.json.JsonParser.parse(in);
             byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
                     .artifactHeaderFooter("Page %d of %d")
                     .buildBytes();
@@ -452,7 +451,7 @@ class A11yPdfDocumentLayoutTest {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("examples/declarative-visual.json")) {
             assertTrue(in != null, "declarative-visual example resource must be present");
 
-            DeclarativeDocument doc = JsonParser.parse(in);
+            DeclarativeDocument doc = com.likide.a11y.pdf.json.JsonParser.parse(in);
             byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
                     .artifactHeaderFooter("Page %d of %d")
                     .buildBytes();
@@ -466,6 +465,70 @@ class A11yPdfDocumentLayoutTest {
             }
         }
     }
+
+        @Test
+        void fromDeclarative_pageChrome_shouldParseAndRenderHeaderFooterText() throws IOException {
+                String json = """
+                                {
+                                    "lang": "en-US",
+                                    "title": "Page Chrome JSON Check",
+                                    "displayDocTitle": true,
+                                    "page": {
+                                        "columns": 1,
+                                        "columnGap": 0,
+                                        "pageWidth": 240,
+                                        "pageHeight": 180,
+                                        "marginTop": 20,
+                                        "marginRight": 20,
+                                        "marginBottom": 20,
+                                        "marginLeft": 20
+                                    },
+                                    "pageChrome": {
+                                        "headerText": {
+                                            "text": "HeaderText",
+                                            "alignment": "LEFT"
+                                        },
+                                        "headerLink": {
+                                            "text": "HeaderLink",
+                                            "url": "https://example.com/header",
+                                            "alignment": "CENTER"
+                                        },
+                                        "footerLink": {
+                                            "text": "FooterLink",
+                                            "url": "https://example.com/footer",
+                                            "alignment": "RIGHT"
+                                        },
+                                        "footerText": {
+                                            "text": "FooterText",
+                                            "alignment": "LEFT"
+                                        },
+                                        "pageNumber": {
+                                            "pattern": "Page %d of %d",
+                                            "alignment": "ALTERNATE"
+                                        }
+                                    },
+                                    "nodes": [
+                                        {
+                                            "text": "Body text for page chrome JSON verification. Body text for page chrome JSON verification. Body text for page chrome JSON verification. Body text for page chrome JSON verification."
+                                        }
+                                    ]
+                                }
+                                """;
+
+                DeclarativeDocument doc = com.likide.a11y.pdf.json.JsonParser.parse(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+                assertTrue(doc.pageChrome != null, "pageChrome must be parsed from JSON");
+
+                byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
+
+                try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                        String extracted = new PDFTextStripper().getText(rendered);
+                        assertTrue(extracted.contains("HeaderText"));
+                        assertTrue(extracted.contains("HeaderLink"));
+                        assertTrue(extracted.contains("FooterLink"));
+                        assertTrue(extracted.contains("FooterText"));
+                        assertTrue(extracted.contains("Page 1 of 1"));
+                }
+        }
 
     @Test
     void buildBytes_tableLongCell_shouldWrapAndPreserveTailText() throws IOException {
@@ -605,7 +668,7 @@ class A11yPdfDocumentLayoutTest {
                 "]}";
 
         try (InputStream in = new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8))) {
-            DeclarativeDocument doc = JsonParser.parse(in);
+            DeclarativeDocument doc = com.likide.a11y.pdf.json.JsonParser.parse(in);
             byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
 
             try (PDDocument rendered = Loader.loadPDF(pdf)) {
@@ -666,7 +729,7 @@ class A11yPdfDocumentLayoutTest {
                                 }
                                 """;
 
-                DeclarativeDocument parsed = JsonParser.parse(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+                DeclarativeDocument parsed = com.likide.a11y.pdf.json.JsonParser.parse(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
 
                 assertEquals(3, parsed.nodes.size());
                 assertTrue(parsed.nodes.get(1) instanceof DeclarativeHeading);

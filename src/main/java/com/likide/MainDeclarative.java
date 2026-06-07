@@ -21,9 +21,7 @@ public class MainDeclarative {
             // Path output = Path.of("target", "article-style.pdf");
 
             DeclarativeDocument doc = loadDeclarativeExample(args);
-            byte[] pdf = A11yPdfDocument.fromDeclarative(doc)
-                    .artifactHeaderFooter("Page %d of %d")
-                    .buildBytes();
+                byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
 
             Files.write(output, pdf);
 

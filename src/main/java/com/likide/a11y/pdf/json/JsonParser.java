@@ -7,6 +7,9 @@ import java.nio.file.Path;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.likide.a11y.pdf.model.DeclarativeBoxModel;
+import com.likide.a11y.pdf.model.DeclarativeChromeImage;
+import com.likide.a11y.pdf.model.DeclarativeChromeLink;
+import com.likide.a11y.pdf.model.DeclarativeChromeText;
 import com.likide.a11y.pdf.model.DeclarativeCustomNode;
 import com.likide.a11y.pdf.model.DeclarativeDocument;
 import com.likide.a11y.pdf.model.DeclarativeFigure;
@@ -15,6 +18,8 @@ import com.likide.a11y.pdf.model.DeclarativeHeading;
 import com.likide.a11y.pdf.model.DeclarativeList;
 import com.likide.a11y.pdf.model.DeclarativeListItem;
 import com.likide.a11y.pdf.model.DeclarativeNode;
+import com.likide.a11y.pdf.model.DeclarativePageChrome;
+import com.likide.a11y.pdf.model.DeclarativePageNumber;
 import com.likide.a11y.pdf.model.DeclarativePageSettings;
 import com.likide.a11y.pdf.model.DeclarativeParagraph;
 import com.likide.a11y.pdf.model.DeclarativeSection;
@@ -96,6 +101,11 @@ public final class JsonParser {
                     doc.fonts.put(key, cfg);
                 }
             });
+        }
+
+        JsonNode pageChromeNode = root.path("pageChrome");
+        if (pageChromeNode.isObject()) {
+            doc.pageChrome = parsePageChrome(pageChromeNode);
         }
 
         JsonNode nodes = root.path("nodes");
@@ -293,6 +303,64 @@ public final class JsonParser {
         section.columns = integer(node, "columns");
         section.columnGap = floating(node, "columnGap");
         return section;
+    }
+
+    private static DeclarativePageChrome parsePageChrome(JsonNode node) {
+        DeclarativePageChrome chrome = new DeclarativePageChrome();
+        chrome.headerText = parseChromeText(node.path("headerText"));
+        chrome.headerLink = parseChromeLink(node.path("headerLink"));
+        chrome.headerImage = parseChromeImage(node.path("headerImage"));
+        chrome.footerText = parseChromeText(node.path("footerText"));
+        chrome.footerLink = parseChromeLink(node.path("footerLink"));
+        chrome.footerImage = parseChromeImage(node.path("footerImage"));
+        chrome.pageNumber = parsePageNumber(node.path("pageNumber"));
+        return chrome;
+    }
+
+    private static DeclarativeChromeText parseChromeText(JsonNode node) {
+        if (!node.isObject()) {
+            return null;
+        }
+        DeclarativeChromeText chrome = new DeclarativeChromeText();
+        chrome.text = text(node, "text");
+        chrome.alignment = text(node, "alignment");
+        chrome.fontSize = floating(node, "fontSize");
+        return chrome;
+    }
+
+    private static DeclarativeChromeLink parseChromeLink(JsonNode node) {
+        if (!node.isObject()) {
+            return null;
+        }
+        DeclarativeChromeLink chrome = new DeclarativeChromeLink();
+        chrome.text = text(node, "text");
+        chrome.url = text(node, "url");
+        chrome.alignment = text(node, "alignment");
+        chrome.fontSize = floating(node, "fontSize");
+        return chrome;
+    }
+
+    private static DeclarativeChromeImage parseChromeImage(JsonNode node) {
+        if (!node.isObject()) {
+            return null;
+        }
+        DeclarativeChromeImage chrome = new DeclarativeChromeImage();
+        chrome.pathOrId = text(node, "pathOrId");
+        chrome.widthPt = floating(node, "widthPt");
+        chrome.heightPt = floating(node, "heightPt");
+        chrome.alignment = text(node, "alignment");
+        chrome.linkUrl = text(node, "linkUrl");
+        return chrome;
+    }
+
+    private static DeclarativePageNumber parsePageNumber(JsonNode node) {
+        if (!node.isObject()) {
+            return null;
+        }
+        DeclarativePageNumber chrome = new DeclarativePageNumber();
+        chrome.pattern = text(node, "pattern");
+        chrome.alignment = text(node, "alignment");
+        return chrome;
     }
 
     // -------------------------------------------------------------------------
