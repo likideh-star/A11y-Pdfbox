@@ -346,6 +346,7 @@ public final class A11yPdfDocument {
         private final List<MarkedContentRecord> markedContentRecords = new ArrayList<>();
         private final Map<PDPage, Map<Integer, PDStructureElement>> mcidToStructElem = new LinkedHashMap<>();
         private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
+        private final Map<Integer, TableSlotPlan> tableSlotPlans = new LinkedHashMap<>();
         private int currentItemSlot = -1;
         private int nextItemSlot = 0;
         private int nextStructureItemSlot = 0;
@@ -942,6 +943,7 @@ public final class A11yPdfDocument {
             mcidToStructElem.clear();
             pageLocalMcidCounter.clear();
             figureBBoxes.clear();
+            tableSlotPlans.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
             currentItemSlot = -1;
@@ -999,6 +1001,7 @@ public final class A11yPdfDocument {
                             marginLeft,
                             contentWidth,
                             tableBlock,
+                        elemIdx,
                             fontRuntimes);
                     page = cursor.page();
                     y = cursor.y();
@@ -1720,6 +1723,7 @@ public final class A11yPdfDocument {
                 float x,
                 float contentWidth,
                 TableBlock tableBlock,
+            int elementIndex,
             Map<String, FontRuntime> fontRuntimes) throws IOException {
             float headerFontSize = 10.0f;
             float bodyFontSize = 10.0f;
@@ -1786,6 +1790,20 @@ public final class A11yPdfDocument {
                 }
             }
 
+            List<Integer> headerSlots = new ArrayList<>();
+            for (int c = 0; c < colCount; c++) {
+                headerSlots.add(nextItemSlot++);
+            }
+            List<List<Integer>> bodyRowSlots = new ArrayList<>();
+            for (int r = 0; r < wrappedRows.size(); r++) {
+                List<Integer> rowSlots = new ArrayList<>();
+                for (int c = 0; c < colCount; c++) {
+                    rowSlots.add(nextItemSlot++);
+                }
+                bodyRowSlots.add(rowSlots);
+            }
+            tableSlotPlans.put(elementIndex, new TableSlotPlan(List.copyOf(headerSlots), List.copyOf(bodyRowSlots)));
+
             PDPage page = startPage;
             float y = startY - boxModel.marginTop() - boxModel.paddingTop();
             int rowStart = 0;
@@ -1844,6 +1862,7 @@ public final class A11yPdfDocument {
 
                     for (int i = 0; i < colCount; i++) {
                         List<String> headerLinesWrapped = wrappedHeader.get(i);
+                        currentItemSlot = headerSlots.get(i);
                         float headerLineY = tableTop - cellPadding - headerFontSize;
                         for (String line : headerLinesWrapped) {
                             drawTaggedChunkedLine(
@@ -1859,6 +1878,7 @@ public final class A11yPdfDocument {
                                     line);
                             headerLineY -= headerLeading;
                         }
+                        currentItemSlot = -1;
                     }
 
                     float rowTop = tableTop - headerHeight;
@@ -1866,6 +1886,7 @@ public final class A11yPdfDocument {
                         float rowHeight = rowHeights.get(rowStart + r);
                         List<List<String>> rowCells = wrappedRows.get(rowStart + r);
                         for (int c = 0; c < colCount; c++) {
+                            currentItemSlot = bodyRowSlots.get(rowStart + r).get(c);
                             List<String> cellLines = rowCells.get(c);
                             float cellLineY = rowTop - cellPadding - bodyFontSize;
                             for (String line : cellLines) {
@@ -1882,6 +1903,7 @@ public final class A11yPdfDocument {
                                         line);
                                 cellLineY -= bodyLeading;
                             }
+                            currentItemSlot = -1;
                         }
                         rowTop -= rowHeight;
                     }
@@ -2494,8 +2516,7 @@ public final class A11yPdfDocument {
                     appendListStructure(document, listBlock, elemIdx);
                     // MCRs are attached per-item to LBody in appendListItemsStructure; do not attach to L
                 } else if (element instanceof TableBlock tableBlock) {
-                    PDStructureElement e = appendTableStructure(document, tableBlock);
-                    attachMCRs(e, elemIdx);
+                    appendTableStructure(document, tableBlock, elemIdx);
                 } else if (element instanceof TocBlock tocBlock) {
                     PDStructureElement e = appendTocStructure(document, tocBlock);
                     attachMCRs(e, elemIdx);
@@ -2576,6 +2597,10 @@ public final class A11yPdfDocument {
             }
         }
 
+        private void attachTableCellMCRs(PDStructureElement elem, int elementIndex, int cellSlot) {
+            attachListItemMCRs(elem, elementIndex, cellSlot);
+        }
+
         private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock, int elemIdx) {
             PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
             parent.appendKid(list);
@@ -2604,10 +2629,11 @@ public final class A11yPdfDocument {
             }
         }
 
-        private PDStructureElement appendTableStructure(PDStructureElement parent, TableBlock tableBlock) {
+        private PDStructureElement appendTableStructure(PDStructureElement parent, TableBlock tableBlock, int elemIdx) {
             PDStructureElement table = new PDStructureElement(StandardStructureTypes.TABLE, parent);
             parent.appendKid(table);
 
+            TableSlotPlan slotPlan = tableSlotPlans.get(elemIdx);
             List<PDStructureElement> thElements = new ArrayList<>();
             if (!tableBlock.headerCells.isEmpty()) {
                 PDStructureElement tHead = new PDStructureElement("THead", table);
@@ -2622,15 +2648,26 @@ public final class A11yPdfDocument {
                     th.getCOSObject().setItem(COSName.getPDFName("A"), thAttr);
                     headerRow.appendKid(th);
                     thElements.add(th);
+                    if (slotPlan != null && c < slotPlan.headerCellSlots().size()) {
+                        attachTableCellMCRs(th, elemIdx, slotPlan.headerCellSlots().get(c));
+                    }
                 }
             }
 
             PDStructureElement tBody = new PDStructureElement("TBody", table);
             table.appendKid(tBody);
-            for (List<String> row : tableBlock.rows) {
+            List<List<Integer>> bodySlots = slotPlan == null ? List.of() : slotPlan.bodyRowCellSlots();
+            int bodyRowCount = slotPlan == null ? tableBlock.rows.size() : bodySlots.size();
+            for (int rowIdx = 0; rowIdx < bodyRowCount; rowIdx++) {
                 PDStructureElement tr = new PDStructureElement(StandardStructureTypes.TR, tBody);
                 tBody.appendKid(tr);
-                int cells = tableBlock.headerCells.isEmpty() ? row.size() : tableBlock.headerCells.size();
+                int cells;
+                if (slotPlan == null) {
+                    List<String> row = rowIdx < tableBlock.rows.size() ? tableBlock.rows.get(rowIdx) : List.of();
+                    cells = tableBlock.headerCells.isEmpty() ? row.size() : tableBlock.headerCells.size();
+                } else {
+                    cells = bodySlots.get(rowIdx).size();
+                }
                 for (int c = 0; c < cells; c++) {
                     PDStructureElement td = new PDStructureElement(StandardStructureTypes.TD, tr);
                     // Link TD to its column TH via /Headers attribute
@@ -2643,6 +2680,9 @@ public final class A11yPdfDocument {
                         td.getCOSObject().setItem(COSName.getPDFName("A"), tdAttr);
                     }
                     tr.appendKid(td);
+                    if (slotPlan != null && rowIdx < bodySlots.size() && c < bodySlots.get(rowIdx).size()) {
+                        attachTableCellMCRs(td, elemIdx, bodySlots.get(rowIdx).get(c));
+                    }
                 }
             }
             return table;
@@ -3165,6 +3205,9 @@ public final class A11yPdfDocument {
     }
 
     private record MarkedContentRecord(int elementIndex, int itemSlot, PDPage page, int mcid) {
+    }
+
+    private record TableSlotPlan(List<Integer> headerCellSlots, List<List<Integer>> bodyRowCellSlots) {
     }
 
         private record FigureRenderPlan(
