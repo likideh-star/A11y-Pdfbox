@@ -349,9 +349,9 @@ public final class A11yPdfDocument {
         private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
         private final Map<Integer, TableSlotPlan> tableSlotPlans = new LinkedHashMap<>();
         private final Map<Integer, TocSlotPlan> tocSlotPlans = new LinkedHashMap<>();
+        private final Map<Integer, List<ListItemSlotPlan>> listItemSlotPlans = new LinkedHashMap<>();
         private int currentItemSlot = -1;
         private int nextItemSlot = 0;
-        private int nextStructureItemSlot = 0;
         private A11yFontFamily documentFontFamily = A11yFontFamily.helvetica();
         private final Map<String, A11yFontFamily> fontFamilies = new LinkedHashMap<>();
         private final List<Path> fallbackFontFiles = new ArrayList<>();
@@ -955,6 +955,7 @@ public final class A11yPdfDocument {
             figureBBoxes.clear();
             tableSlotPlans.clear();
             tocSlotPlans.clear();
+            listItemSlotPlans.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
             currentItemSlot = -1;
@@ -2363,21 +2364,30 @@ public final class A11yPdfDocument {
 
             for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
                 ListItem item = listBlock.items.get(itemIndex);
-                currentItemSlot = nextItemSlot++;
+                int labelSlot = nextItemSlot++;
+                int bodySlot = nextItemSlot++;
+                listItemSlotPlans
+                        .computeIfAbsent(currentElementIndex, k -> new ArrayList<>())
+                        .add(new ListItemSlotPlan(labelSlot, bodySlot));
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     String line = lines.get(lineIndex);
                     float lineX = bulletX;
                     if (lineIndex == 0) {
-                        line = listItemPrefix(listBlock, itemIndex) + line;
+                        String marker = listItemPrefix(listBlock, itemIndex);
+                        currentItemSlot = labelSlot;
+                        drawTaggedChunkedLine(cs, "Lbl", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+                        lineX += marker.length() * averageCharWidth;
                     } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
                         line = "  " + line;
                     } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
                         lineX += listBlock.customIndentPt;
                     }
-                    drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                    currentItemSlot = bodySlot;
+                    drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     y -= leading;
                 }
+                currentItemSlot = -1;
                 if (item.nestedList != null) {
                     y = renderListWithoutPaging(cs, fontRuntimes, item.nestedList, x + 18.0f, y, leading);
                 }
@@ -2417,7 +2427,11 @@ public final class A11yPdfDocument {
 
             for (int itemIndex = 0; itemIndex < listBlock.items.size(); itemIndex++) {
                 ListItem item = listBlock.items.get(itemIndex);
-                currentItemSlot = nextItemSlot++;
+                int labelSlot = nextItemSlot++;
+                int bodySlot = nextItemSlot++;
+                listItemSlotPlans
+                        .computeIfAbsent(currentElementIndex, k -> new ArrayList<>())
+                        .add(new ListItemSlotPlan(labelSlot, bodySlot));
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     if (y - 14.4f < marginBottom) {
@@ -2427,18 +2441,26 @@ public final class A11yPdfDocument {
                     String line = lines.get(lineIndex);
                     float lineX = bulletX;
                     if (lineIndex == 0) {
-                        line = listItemPrefix(listBlock, itemIndex) + line;
+                        String marker = listItemPrefix(listBlock, itemIndex);
+                        currentItemSlot = labelSlot;
+                        try (PDPageContentStream cs = new PDPageContentStream(
+                                doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                            drawTaggedChunkedLine(cs, "Lbl", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, bulletX, y, marker);
+                        }
+                        lineX += marker.length() * averageCharWidth;
                     } else if (listBlock.indentStyle == ListIndentStyle.TWO_SPACE) {
                         line = "  " + line;
                     } else if (listBlock.indentStyle == ListIndentStyle.CUSTOM) {
                         lineX += listBlock.customIndentPt;
                     }
+                    currentItemSlot = bodySlot;
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawTaggedChunkedLine(cs, "LBody", fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
+                        drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, null, listBlock.style, FontVariant.REGULAR, 12.0f, lineX, y, line);
                     }
                     y -= 14.4f;
                 }
+                currentItemSlot = -1;
 
                 if (item.nestedList != null) {
                     ListFlowState nestedState = renderListWithPaging(
@@ -2497,7 +2519,6 @@ public final class A11yPdfDocument {
             PDDocumentCatalog catalog = doc.getDocumentCatalog();
             PDStructureTreeRoot root = new PDStructureTreeRoot();
             catalog.setStructureTreeRoot(root);
-            nextStructureItemSlot = 0;
 
             PDStructureElement document = new PDStructureElement(StandardStructureTypes.DOCUMENT, root);
             root.appendKid(document);
@@ -2635,27 +2656,53 @@ public final class A11yPdfDocument {
         private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock, int elemIdx) {
             PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
             parent.appendKid(list);
-            appendListItemsStructure(list, listBlock, elemIdx);
+            List<ListItemSlotPlan> itemSlots = listItemSlotPlans.getOrDefault(elemIdx, List.of());
+            int[] slotCursor = new int[]{0};
+            appendListItemsStructure(list, listBlock, elemIdx, itemSlots, slotCursor);
             return list;
         }
 
         private void appendListStructure(PDStructureElement parent, ListBlock listBlock, int elemIdx) {
-            PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
-            parent.appendKid(list);
-            appendListItemsStructure(list, listBlock, elemIdx);
+            List<ListItemSlotPlan> itemSlots = listItemSlotPlans.getOrDefault(elemIdx, List.of());
+            int[] slotCursor = new int[]{0};
+            appendListStructure(parent, listBlock, elemIdx, itemSlots, slotCursor);
         }
 
-        private void appendListItemsStructure(PDStructureElement list, ListBlock listBlock, int elemIdx) {
+        private void appendListStructure(
+                PDStructureElement parent,
+                ListBlock listBlock,
+                int elemIdx,
+                List<ListItemSlotPlan> itemSlots,
+                int[] slotCursor) {
+            PDStructureElement list = new PDStructureElement(StandardStructureTypes.L, parent);
+            parent.appendKid(list);
+            appendListItemsStructure(list, listBlock, elemIdx, itemSlots, slotCursor);
+        }
+
+        private void appendListItemsStructure(
+                PDStructureElement list,
+                ListBlock listBlock,
+                int elemIdx,
+                List<ListItemSlotPlan> itemSlots,
+                int[] slotCursor) {
             for (ListItem item : listBlock.items) {
                 PDStructureElement li = new PDStructureElement(StandardStructureTypes.LI, list);
                 list.appendKid(li);
                 PDStructureElement label = new PDStructureElement("Lbl", li);
                 PDStructureElement body = new PDStructureElement("LBody", li);
+                PDStructureElement paragraph = new PDStructureElement(StandardStructureTypes.P, body);
                 li.appendKid(label);
                 li.appendKid(body);
-                attachListItemMCRs(body, elemIdx, nextStructureItemSlot++);
+                body.appendKid(paragraph);
+
+                if (slotCursor[0] < itemSlots.size()) {
+                    ListItemSlotPlan plan = itemSlots.get(slotCursor[0]++);
+                    attachListItemMCRs(label, elemIdx, plan.labelSlot());
+                    attachListItemMCRs(paragraph, elemIdx, plan.bodySlot());
+                }
+
                 if (item.nestedList != null) {
-                    appendListStructure(body, item.nestedList, elemIdx);
+                    appendListStructure(body, item.nestedList, elemIdx, itemSlots, slotCursor);
                 }
             }
         }
@@ -3248,6 +3295,9 @@ public final class A11yPdfDocument {
     }
 
     private record TocSlotPlan(List<Integer> referenceSlots) {
+    }
+
+    private record ListItemSlotPlan(int labelSlot, int bodySlot) {
     }
 
         private record FigureRenderPlan(
