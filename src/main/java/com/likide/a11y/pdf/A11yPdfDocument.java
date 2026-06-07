@@ -1282,9 +1282,14 @@ public final class A11yPdfDocument {
                     float resolvedContentWidth = resolveContentWidth(contentWidth, paragraph.boxModel);
                     float textX = x + paragraph.boxModel.paddingLeft();
                     y -= paragraph.boxModel.marginTop() + paragraph.boxModel.paddingTop();
-                    for (String line : wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f)) {
-                        drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
-                        y -= leading;
+                    beginTaggedMarkedContent(cs, StandardStructureTypes.P);
+                    try {
+                        for (String line : wrapText(paragraph.text, resolvedContentWidth, fontSize * 0.5f)) {
+                            drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                            y -= leading;
+                        }
+                    } finally {
+                        cs.endMarkedContent();
                     }
                     y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
 
@@ -1448,7 +1453,8 @@ public final class A11yPdfDocument {
             int columnIndex = startColumnIndex;
             float y = startY - paragraph.boxModel.marginTop() - paragraph.boxModel.paddingTop();
 
-            for (String line : lines) {
+            int lineIndex = 0;
+            while (lineIndex < lines.size()) {
                 if (y - leading < marginBottom) {
                     FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                     page = next.page();
@@ -1463,9 +1469,20 @@ public final class A11yPdfDocument {
 
                 try (PDPageContentStream cs = new PDPageContentStream(
                         doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    drawTaggedChunkedLine(cs, StandardStructureTypes.P, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                    beginTaggedMarkedContent(cs, StandardStructureTypes.P);
+                    try {
+                        while (lineIndex < lines.size()) {
+                            if (y - leading < marginBottom) {
+                                break;
+                            }
+                            String line = lines.get(lineIndex++);
+                            drawChunkedLine(cs, fontRuntimes, paragraph.style, null, FontVariant.REGULAR, fontSize, textX, y, line);
+                            y -= leading;
+                        }
+                    } finally {
+                        cs.endMarkedContent();
+                    }
                 }
-                y -= leading;
             }
 
             y -= paragraph.boxModel.paddingBottom() + paragraph.boxModel.marginBottom();
@@ -2270,6 +2287,15 @@ public final class A11yPdfDocument {
                 float x,
                 float y,
                 String text) throws IOException {
+            beginTaggedMarkedContent(cs, structureTag);
+            try {
+                drawChunkedLine(cs, fontRuntimes, nodeStyle, parentStyle, fallbackVariant, fontSize, x, y, text);
+            } finally {
+                cs.endMarkedContent();
+            }
+        }
+
+        private void beginTaggedMarkedContent(PDPageContentStream cs, String structureTag) throws IOException {
             String tag = (structureTag == null || structureTag.isBlank()) ? StandardStructureTypes.P : structureTag;
             PDPage recordPage = currentRenderPage;
             int mcid = allocateMcid(recordPage != null ? recordPage : new PDPage());
@@ -2279,11 +2305,6 @@ public final class A11yPdfDocument {
             COSDictionary markedContentProps = new COSDictionary();
             markedContentProps.setInt(COSName.MCID, mcid);
             cs.beginMarkedContent(COSName.getPDFName(tag), PDPropertyList.create(markedContentProps));
-            try {
-                drawChunkedLine(cs, fontRuntimes, nodeStyle, parentStyle, fallbackVariant, fontSize, x, y, text);
-            } finally {
-                cs.endMarkedContent();
-            }
         }
 
         private List<String> wrapText(String text, float availableWidth, float averageCharWidth) {
