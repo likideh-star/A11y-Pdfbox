@@ -347,6 +347,7 @@ public final class A11yPdfDocument {
         private final Map<PDPage, Map<Integer, PDStructureElement>> mcidToStructElem = new LinkedHashMap<>();
         private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
         private final Map<Integer, TableSlotPlan> tableSlotPlans = new LinkedHashMap<>();
+        private final Map<Integer, TocSlotPlan> tocSlotPlans = new LinkedHashMap<>();
         private int currentItemSlot = -1;
         private int nextItemSlot = 0;
         private int nextStructureItemSlot = 0;
@@ -944,6 +945,7 @@ public final class A11yPdfDocument {
             pageLocalMcidCounter.clear();
             figureBBoxes.clear();
             tableSlotPlans.clear();
+            tocSlotPlans.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
             currentItemSlot = -1;
@@ -1053,6 +1055,7 @@ public final class A11yPdfDocument {
                             page,
                             fontRuntimes,
                             tocBlock,
+                            elemIdx,
                             activeColumnIndex,
                             activeColumns,
                             activeColumnGap,
@@ -1549,6 +1552,7 @@ public final class A11yPdfDocument {
                 PDPage startPage,
                 Map<String, FontRuntime> fontRuntimes,
                 TocBlock tocBlock,
+                int elementIndex,
                 int startColumnIndex,
                 int activeColumns,
                 float activeColumnGap,
@@ -1557,6 +1561,12 @@ public final class A11yPdfDocument {
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
             float y = startY;
+            List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
+            List<Integer> referenceSlots = new ArrayList<>();
+            for (int i = 0; i < entries.size(); i++) {
+                referenceSlots.add(nextItemSlot++);
+            }
+            tocSlotPlans.put(elementIndex, new TocSlotPlan(List.copyOf(referenceSlots)));
 
             String title = tocBlock.title == null || tocBlock.title.isBlank() ? "Table of Contents" : tocBlock.title;
             List<String> titleLines = wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f);
@@ -1578,7 +1588,9 @@ public final class A11yPdfDocument {
                 y -= 14.4f;
             }
 
-            for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+            for (int entryIndex = 0; entryIndex < entries.size(); entryIndex++) {
+                TocEntry entry = entries.get(entryIndex);
+                currentItemSlot = referenceSlots.get(entryIndex);
                 String entryText = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
                 List<String> lines = wrapText(entryText, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f);
                 for (String line : lines) {
@@ -1597,6 +1609,7 @@ public final class A11yPdfDocument {
                     }
                     y -= 13.2f;
                 }
+                currentItemSlot = -1;
             }
 
             return new FlowCursor(page, columnIndex, y - 8.0f);
@@ -2518,7 +2531,7 @@ public final class A11yPdfDocument {
                 } else if (element instanceof TableBlock tableBlock) {
                     appendTableStructure(document, tableBlock, elemIdx);
                 } else if (element instanceof TocBlock tocBlock) {
-                    PDStructureElement e = appendTocStructure(document, tocBlock);
+                    PDStructureElement e = appendTocStructure(document, tocBlock, elemIdx);
                     attachMCRs(e, elemIdx);
                 } else if (element instanceof CustomBlock) {
                     PDStructureElement e = new PDStructureElement("Sect", document);
@@ -2599,6 +2612,10 @@ public final class A11yPdfDocument {
 
         private void attachTableCellMCRs(PDStructureElement elem, int elementIndex, int cellSlot) {
             attachListItemMCRs(elem, elementIndex, cellSlot);
+        }
+
+        private void attachTocReferenceMCRs(PDStructureElement elem, int elementIndex, int referenceSlot) {
+            attachListItemMCRs(elem, elementIndex, referenceSlot);
         }
 
         private PDStructureElement appendListStructure(PDStructureTreeRoot parent, ListBlock listBlock, int elemIdx) {
@@ -2688,16 +2705,20 @@ public final class A11yPdfDocument {
             return table;
         }
 
-        private PDStructureElement appendTocStructure(PDStructureElement parent, TocBlock tocBlock) {
+        private PDStructureElement appendTocStructure(PDStructureElement parent, TocBlock tocBlock, int elemIdx) {
             PDStructureElement toc = new PDStructureElement(StandardStructureTypes.TOC, parent);
             parent.appendKid(toc);
 
+            TocSlotPlan slotPlan = tocSlotPlans.get(elemIdx);
             List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
-            for (TocEntry entry : entries) {
+            for (int i = 0; i < entries.size(); i++) {
                 PDStructureElement toci = new PDStructureElement("TOCI", toc);
                 toc.appendKid(toci);
                 PDStructureElement reference = new PDStructureElement("Reference", toci);
                 toci.appendKid(reference);
+                if (slotPlan != null && i < slotPlan.referenceSlots().size()) {
+                    attachTocReferenceMCRs(reference, elemIdx, slotPlan.referenceSlots().get(i));
+                }
             }
             return toc;
         }
@@ -3208,6 +3229,9 @@ public final class A11yPdfDocument {
     }
 
     private record TableSlotPlan(List<Integer> headerCellSlots, List<List<Integer>> bodyRowCellSlots) {
+    }
+
+    private record TocSlotPlan(List<Integer> referenceSlots) {
     }
 
         private record FigureRenderPlan(

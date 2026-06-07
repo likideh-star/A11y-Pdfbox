@@ -3,8 +3,8 @@
   "title": "A11y PDF Declarative Visual Check",
   "displayDocTitle": true,
   "page": {
-    "columns": 2,
-    "columnGap": 24.0
+    "columns": 1,
+    "columnGap": 0
   },
   "fonts": {
     "default": {
@@ -15,6 +15,16 @@
     }
   },
   "nodes": [
+    {
+      "title": "Document Outline",
+      "maxDepth": 2
+    },
+    {
+      "section": {
+        "columns": 2,
+        "columnGap": 20.0
+      }
+    },
     {
       "level": 1,
       "text": "H1: Declarative Visual Smoke Check",
@@ -224,10 +234,6 @@
         { "cells": ["Result", "Pass"] },
         { "cells": ["Note", "This is a table sample."] }
       ]
-    },
-    {
-      "title": "Document Outline",
-      "maxDepth": 2
     },
     {
       "family": "future.analytics",
