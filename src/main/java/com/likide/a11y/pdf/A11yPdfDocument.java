@@ -38,9 +38,11 @@ import org.apache.pdfbox.pdmodel.documentinterchange.taggedpdf.StandardStructure
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo;
 import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDBorderStyleDictionary;
+import org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageXYZDestination;
 import org.apache.pdfbox.pdmodel.interactive.viewerpreferences.PDViewerPreferences;
 
 import com.likide.a11y.pdf.fonts.A11yFontFamily;
@@ -184,7 +186,7 @@ public final class A11yPdfDocument {
                 }
                 tableBuilder.endTable();
             } else if (node instanceof IntermediateToc toc) {
-                builder.tableOfContents(toc.title(), toc.maxDepth());
+                builder.tableOfContents(toc.title(), toc.maxDepth(), parseTocItemMode(toc.itemMode()), toc.showPageNumbers());
             } else if (node instanceof IntermediateCustomNode custom) {
                 CustomNodeBuilder customNodeBuilder = builder.customNode(custom.family(), custom.type());
                 for (Map.Entry<String, String> entry : custom.attributes().entrySet()) {
@@ -354,6 +356,18 @@ public final class A11yPdfDocument {
         }
     }
 
+    private static TocItemMode parseTocItemMode(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return TocItemMode.TEXT;
+        }
+        String normalized = rawValue.trim().replace('-', '_').replace(' ', '_').toUpperCase(Locale.ROOT);
+        try {
+            return TocItemMode.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return TocItemMode.TEXT;
+        }
+    }
+
     private static ListIndentStyle parseListIndentStyle(String rawValue) {
         if (rawValue == null || rawValue.isBlank()) {
             return ListIndentStyle.TWO_SPACE;
@@ -458,6 +472,11 @@ public final class A11yPdfDocument {
         JUSTIFY
     }
 
+    public enum TocItemMode {
+        TEXT,
+        LINK
+    }
+
     public static final class Builder {
         private String lang = "en-US";
         private String title = "Untitled";
@@ -487,6 +506,12 @@ public final class A11yPdfDocument {
         private final Map<Integer, float[]> figureBBoxes = new LinkedHashMap<>();
         private final Map<Integer, TableSlotPlan> tableSlotPlans = new LinkedHashMap<>();
         private final Map<Integer, TocSlotPlan> tocSlotPlans = new LinkedHashMap<>();
+        private final List<TocLinkAnnotationPlan> tocLinkAnnotationPlans = new ArrayList<>();
+        private final List<TocPageSpan> tocPageSpans = new ArrayList<>();
+        private Map<Integer, Integer> resolvedTocHeadingPages = Map.of();
+        private final Map<Integer, Integer> collectedHeadingPageNumbers = new LinkedHashMap<>();
+        private boolean collectHeadingPageNumbers = false;
+        private boolean suppressTocLinkAnnotations = false;
         private final Map<Integer, List<ListItemSlotPlan>> listItemSlotPlans = new LinkedHashMap<>();
         private int currentItemSlot = -1;
         private int nextItemSlot = 0;
@@ -729,10 +754,14 @@ public final class A11yPdfDocument {
         }
 
         public Builder tableOfContents(String title, int maxDepth) {
+            return tableOfContents(title, maxDepth, TocItemMode.TEXT, true);
+        }
+
+        public Builder tableOfContents(String title, int maxDepth, TocItemMode itemMode, boolean showPageNumbers) {
             if (maxDepth < 1) {
                 throw new ValidationException("TOC maxDepth must be >= 1");
             }
-            elements.add(new TocBlock(title, maxDepth));
+            elements.add(new TocBlock(title, maxDepth, itemMode == null ? TocItemMode.TEXT : itemMode, showPageNumbers));
             return this;
         }
 
@@ -1146,23 +1175,41 @@ public final class A11yPdfDocument {
         }
 
         private void renderToDocument(PDDocument doc) throws IOException {
+            renderToDocument(doc, true);
+        }
+
+        private void renderToDocument(PDDocument doc, boolean resolveTocTargets) throws IOException {
+            if (resolveTocTargets) {
+                if (!isTextOnlyFlow() && containsTocBlock()) {
+                    resolvedTocHeadingPages = resolveTocHeadingPages();
+                } else {
+                    resolvedTocHeadingPages = Map.of();
+                }
+            }
+
             markedContentRecords.clear();
             mcidToStructElem.clear();
             pageLocalMcidCounter.clear();
             figureBBoxes.clear();
             tableSlotPlans.clear();
             tocSlotPlans.clear();
+            tocLinkAnnotationPlans.clear();
+            tocPageSpans.clear();
+            collectedHeadingPageNumbers.clear();
             listItemSlotPlans.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
             currentItemSlot = -1;
             nextItemSlot = 0;
 
+            LayoutBlueprint layoutBlueprint = analyzeLayout();
+
             Map<String, FontRuntime> fontRuntimes = loadFontRuntimes(doc);
 
             if (isTextOnlyFlow()) {
                 renderTextOnlyFromLayoutBlueprint(doc, fontRuntimes);
                 renderArtifactPageChrome(doc, fontRuntimes);
+                applyTocLinkAnnotations(doc);
                 return;
             }
 
@@ -1313,6 +1360,44 @@ public final class A11yPdfDocument {
 
             buildStructureTree(doc);
             renderArtifactPageChrome(doc, fontRuntimes);
+            applyTocLinkAnnotations(doc);
+        }
+
+        private boolean containsTocBlock() {
+            for (Element element : elements) {
+                if (element instanceof TocBlock) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Map<Integer, Integer> resolveTocHeadingPages() throws IOException {
+            Map<Integer, Integer> guess = Map.of();
+            Map<Integer, Integer> previousResolved = resolvedTocHeadingPages;
+            boolean previousCollect = collectHeadingPageNumbers;
+            boolean previousSuppressLinks = suppressTocLinkAnnotations;
+            try {
+                for (int pass = 0; pass < 3; pass++) {
+                    resolvedTocHeadingPages = guess;
+                    collectHeadingPageNumbers = true;
+                    suppressTocLinkAnnotations = true;
+                    try (PDDocument scratch = new PDDocument()) {
+                        renderToDocument(scratch, false);
+                    }
+                    Map<Integer, Integer> computed = Map.copyOf(collectedHeadingPageNumbers);
+                    if (computed.equals(guess)) {
+                        return computed;
+                    }
+                    guess = computed;
+                }
+                return guess;
+            } finally {
+                resolvedTocHeadingPages = previousResolved;
+                collectHeadingPageNumbers = previousCollect;
+                suppressTocLinkAnnotations = previousSuppressLinks;
+                collectedHeadingPageNumbers.clear();
+            }
         }
 
         private boolean isTextOnlyFlow() {
@@ -1447,7 +1532,8 @@ public final class A11yPdfDocument {
                 if (!title.isBlank()) {
                     content += wrapText(title, Math.max(1.0f, contentWidth), 12.0f * 0.55f).size() * 14.4f;
                 }
-                for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+                LayoutBlueprint layoutBlueprint = analyzeLayout();
+                for (TocEntry entry : buildTocEntries(layoutBlueprint, tocBlock.maxDepth)) {
                     String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
                     content += wrapText(line, Math.max(1.0f, contentWidth), 11.0f * 0.5f).size() * 13.2f;
                 }
@@ -1572,10 +1658,18 @@ public final class A11yPdfDocument {
                         drawTaggedChunkedLine(cs, StandardStructureTypes.TOC, fontRuntimes, null, null, FontVariant.BOLD, 12.0f, x, y, title);
                         y -= 14.4f;
                     }
-                    for (TocEntry entry : buildTocEntries(tocBlock.maxDepth)) {
+                    List<TocEntry> tocEntries = buildTocEntries(analyzeLayout(), tocBlock.maxDepth);
+                    int tocPageCount = estimateTocPageCount(tocBlock, tocEntries, contentWidth, 1, 0.0f, y);
+                    int currentTocElementIndex = currentElementIndex;
+                    for (TocEntry entry : tocEntries) {
                         String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
-                        drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
+                        int targetPageNumber = resolveTocTargetPageNumber(entry, tocPageCount, currentTocElementIndex);
+                        String displayLine = tocBlock.showPageNumbers ? line + " " + targetPageNumber : line;
+                        renderTocEntryLine(doc, page, fontRuntimes, tocBlock, displayLine, targetPageNumber, x, y, contentWidth);
                         y -= 13.2f;
+                    }
+                    if (currentTocElementIndex >= 0) {
+                        tocPageSpans.add(new TocPageSpan(currentTocElementIndex, tocPageCount));
                     }
                     y -= 8.0f;
 
@@ -1613,6 +1707,7 @@ public final class A11yPdfDocument {
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
             float y = startY - heading.boxModel.marginTop() - heading.boxModel.paddingTop() - 6.0f;
+            boolean capturedPage = false;
 
             for (String line : lines) {
                 if (y - leading < marginBottom) {
@@ -1620,6 +1715,11 @@ public final class A11yPdfDocument {
                     page = next.page();
                     columnIndex = next.columnIndex();
                     y = next.y();
+                }
+
+                if (!capturedPage && collectHeadingPageNumbers && heading.includeInToc && currentElementIndex >= 0) {
+                    collectedHeadingPageNumbers.putIfAbsent(currentElementIndex, resolveRenderedPageNumber(doc, page));
+                    capturedPage = true;
                 }
 
                 float x = activeColumns <= 1
@@ -1636,6 +1736,17 @@ public final class A11yPdfDocument {
 
             y -= heading.boxModel.paddingBottom() + heading.boxModel.marginBottom();
             return new FlowCursor(page, columnIndex, y);
+        }
+
+        private int resolveRenderedPageNumber(PDDocument doc, PDPage targetPage) {
+            int index = 0;
+            for (PDPage page : doc.getPages()) {
+                if (page == targetPage) {
+                    return index + 1;
+                }
+                index++;
+            }
+            return Math.max(1, doc.getNumberOfPages());
         }
 
         private FlowCursor renderParagraphAcrossFlow(
@@ -1800,7 +1911,9 @@ public final class A11yPdfDocument {
             PDPage page = startPage;
             int columnIndex = startColumnIndex;
             float y = startY;
-            List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
+            LayoutBlueprint layoutBlueprint = analyzeLayout();
+            List<TocEntry> entries = buildTocEntries(layoutBlueprint, tocBlock.maxDepth);
+            int tocPageCount = estimateTocPageCount(tocBlock, entries, activeColumnWidth, activeColumns, activeColumnGap, y);
             List<Integer> referenceSlots = new ArrayList<>();
             for (int i = 0; i < entries.size(); i++) {
                 referenceSlots.add(nextItemSlot++);
@@ -1834,7 +1947,9 @@ public final class A11yPdfDocument {
                 currentItemSlot = referenceSlots.get(entryIndex);
                 String entryText = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
                 List<String> lines = wrapText(entryText, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f);
-                for (String line : lines) {
+                int targetPageNumber = resolveTocTargetPageNumber(entry, tocPageCount, elementIndex);
+                for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                    String line = lines.get(lineIndex);
                     if (y - 13.2f < marginBottom) {
                         FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                         page = next.page();
@@ -1844,27 +1959,158 @@ public final class A11yPdfDocument {
                     float x = activeColumns <= 1
                             ? marginLeft
                             : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
-                    try (PDPageContentStream cs = new PDPageContentStream(
-                            doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                        drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, line);
-                    }
+                        boolean lastLine = lineIndex == lines.size() - 1;
+                        String displayLine = tocBlock.showPageNumbers && lastLine
+                            ? line + " " + targetPageNumber
+                            : line;
+                        renderTocEntryLine(doc, page, fontRuntimes, tocBlock, displayLine, targetPageNumber, x, y, activeColumnWidth);
                     y -= 13.2f;
                 }
                 currentItemSlot = -1;
             }
 
+                    tocPageSpans.add(new TocPageSpan(elementIndex, tocPageCount));
+
             return new FlowCursor(page, columnIndex, y - 8.0f);
         }
 
-        private List<TocEntry> buildTocEntries(int maxDepth) {
+        private List<TocEntry> buildTocEntries(LayoutBlueprint layoutBlueprint, int maxDepth) {
             List<TocEntry> entries = new ArrayList<>();
             int depth = Math.max(1, maxDepth);
-            for (Element element : elements) {
+            List<LayoutBlock> headingBlocks = layoutBlueprint.blocks().stream()
+                    .filter(block -> block.role() != null && block.role().startsWith("H"))
+                    .toList();
+            int headingCursor = 0;
+            for (int elementIndex = 0; elementIndex < elements.size(); elementIndex++) {
+                Element element = elements.get(elementIndex);
                 if (element instanceof Heading heading && heading.includeInToc && heading.level <= depth) {
-                    entries.add(new TocEntry(heading.level, heading.text));
+                    if (headingCursor >= headingBlocks.size()) {
+                        break;
+                    }
+                    LayoutBlock headingBlock = headingBlocks.get(headingCursor++);
+                    entries.add(new TocEntry(heading.level, heading.text, elementIndex, headingBlock.pageIndex()));
                 }
             }
             return entries;
+        }
+
+        private int estimateTocPageCount(TocBlock tocBlock, List<TocEntry> entries, float activeColumnWidth, int activeColumns, float activeColumnGap, float startY) {
+            String title = tocBlock.title == null ? "Table of Contents" : tocBlock.title;
+            float y = startY;
+            int pages = 1;
+            int columnIndex = 0;
+
+            if (!title.isBlank()) {
+                for (String ignored : wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f)) {
+                    if (y - 14.4f < marginBottom) {
+                        if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
+                            columnIndex++;
+                        } else {
+                            pages++;
+                            columnIndex = 0;
+                        }
+                        y = pageHeight - marginTop;
+                    }
+                    y -= 14.4f;
+                }
+            }
+
+            for (TocEntry entry : entries) {
+                String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
+                for (String ignored : wrapText(line, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f)) {
+                    if (y - 13.2f < marginBottom) {
+                        if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
+                            columnIndex++;
+                        } else {
+                            pages++;
+                            columnIndex = 0;
+                        }
+                        y = pageHeight - marginTop;
+                    }
+                    y -= 13.2f;
+                }
+            }
+
+            return pages;
+        }
+
+        private int advanceTocColumn(int columnIndex, int activeColumns) {
+            if (activeColumns <= 1) {
+                return 0;
+            }
+            int nextColumn = columnIndex + 1;
+            if (nextColumn >= activeColumns) {
+                return 0;
+            }
+            return nextColumn;
+        }
+
+        private int tocPageShiftFor(int sourceElementIndex, int currentTocPageCount, int currentTocElementIndex) {
+            int shift = 0;
+            for (TocPageSpan span : tocPageSpans) {
+                if (span.elementIndex() < sourceElementIndex) {
+                    shift += span.pageCount();
+                }
+            }
+            if (currentTocElementIndex >= 0 && currentTocElementIndex < sourceElementIndex) {
+                shift += currentTocPageCount;
+            }
+            return shift;
+        }
+
+        private int resolveTocTargetPageNumber(TocEntry entry, int currentTocPageCount, int currentTocElementIndex) {
+            Integer resolved = resolvedTocHeadingPages.get(entry.sourceElementIndex());
+            if (resolved != null && resolved > 0) {
+                return resolved;
+            }
+            int pageShift = tocPageShiftFor(entry.sourceElementIndex(), currentTocPageCount, currentTocElementIndex);
+            return entry.pageIndex() + 1 + pageShift;
+        }
+
+        private void renderTocEntryLine(
+                PDDocument doc,
+                PDPage page,
+                Map<String, FontRuntime> fontRuntimes,
+                TocBlock tocBlock,
+                String displayLine,
+                int targetPageNumber,
+                float x,
+                float y,
+                float contentWidth) throws IOException {
+            try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                drawTaggedChunkedLine(cs, "Reference", fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, displayLine);
+            }
+            if (!suppressTocLinkAnnotations && tocBlock.itemMode == TocItemMode.LINK) {
+                tocLinkAnnotationPlans.add(new TocLinkAnnotationPlan(page, x, y - 2.0f, contentWidth, 13.2f, targetPageNumber));
+            }
+        }
+
+        private void applyTocLinkAnnotations(PDDocument doc) throws IOException {
+            if (tocLinkAnnotationPlans.isEmpty()) {
+                return;
+            }
+            int maxPageIndex = Math.max(0, doc.getNumberOfPages() - 1);
+            for (TocLinkAnnotationPlan plan : tocLinkAnnotationPlans) {
+                int targetIndex = Math.max(0, Math.min(maxPageIndex, plan.targetPageNumber() - 1));
+                PDAnnotationLink link = new PDAnnotationLink();
+                PDRectangle rect = new PDRectangle();
+                rect.setLowerLeftX(plan.x());
+                rect.setLowerLeftY(plan.y());
+                rect.setUpperRightX(plan.x() + Math.max(1.0f, plan.width()));
+                rect.setUpperRightY(plan.y() + Math.max(1.0f, plan.height()));
+                link.setRectangle(rect);
+                PDBorderStyleDictionary border = new PDBorderStyleDictionary();
+                border.setWidth(0);
+                link.setBorderStyle(border);
+                PDActionGoTo action = new PDActionGoTo();
+                PDPageXYZDestination destination = new PDPageXYZDestination();
+                destination.setPage(doc.getPage(targetIndex));
+                destination.setTop(Math.round(pageHeight - marginTop));
+                destination.setLeft(Math.round(marginLeft));
+                action.setDestination(destination);
+                link.setAction(action);
+                plan.page().getAnnotations().add(link);
+            }
         }
 
         private FigureRenderPlan buildFigureRenderPlan(PDDocument doc, Figure figure, float availableWidth) {
@@ -3125,7 +3371,8 @@ public final class A11yPdfDocument {
             parent.appendKid(toc);
 
             TocSlotPlan slotPlan = tocSlotPlans.get(elemIdx);
-            List<TocEntry> entries = buildTocEntries(tocBlock.maxDepth);
+            LayoutBlueprint layoutBlueprint = analyzeLayout();
+            List<TocEntry> entries = buildTocEntries(layoutBlueprint, tocBlock.maxDepth);
             for (int i = 0; i < entries.size(); i++) {
                 PDStructureElement toci = new PDStructureElement("TOCI", toc);
                 toc.appendKid(toci);
@@ -3413,7 +3660,7 @@ public final class A11yPdfDocument {
         private record TocReferenceCheck(int nodeIndex, int maxDepth) {
         }
 
-        private record TocEntry(int level, String text) {
+        private record TocEntry(int level, String text, int sourceElementIndex, int pageIndex) {
         }
     }
 
@@ -3676,10 +3923,14 @@ public final class A11yPdfDocument {
     private static final class TocBlock implements Element {
         private final String title;
         private final int maxDepth;
+        private final TocItemMode itemMode;
+        private final boolean showPageNumbers;
 
-        private TocBlock(String title, int maxDepth) {
+        private TocBlock(String title, int maxDepth, TocItemMode itemMode, boolean showPageNumbers) {
             this.title = title;
             this.maxDepth = maxDepth;
+            this.itemMode = itemMode == null ? TocItemMode.TEXT : itemMode;
+            this.showPageNumbers = showPageNumbers;
         }
     }
 
@@ -3851,6 +4102,12 @@ public final class A11yPdfDocument {
     }
 
     private record TocSlotPlan(List<Integer> referenceSlots) {
+    }
+
+    private record TocPageSpan(int elementIndex, int pageCount) {
+    }
+
+    private record TocLinkAnnotationPlan(PDPage page, float x, float y, float width, float height, int targetPageNumber) {
     }
 
     private record ListItemSlotPlan(int labelSlot, int bodySlot) {

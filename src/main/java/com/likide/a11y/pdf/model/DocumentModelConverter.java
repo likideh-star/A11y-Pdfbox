@@ -65,6 +65,8 @@ public final class DocumentModelConverter {
                 nodes.add(new IntermediateToc(
                         toc.title(),
                         toc.maxDepth(),
+                        "LINK",
+                        true,
                         new SemanticMetadata("TOC", null, "toc")));
             } else if (node instanceof FluentCustomNode custom) {
                 nodes.add(new IntermediateCustomNode(
@@ -225,9 +227,12 @@ public final class DocumentModelConverter {
             if (maxDepth < 1) {
                 throw new ValidationException("TOC maxDepth must be >= 1");
             }
+            boolean showPageNumbers = toc.showPageNumbers == null || toc.showPageNumbers;
             return new IntermediateToc(
                     nullToEmpty(toc.title),
                     maxDepth,
+                    normalizeTocItemMode(toc.itemMode),
+                    showPageNumbers,
                     resolveSemantic("TOC", toc.semantic, "toc"));
         }
         if (node instanceof DeclarativeCustomNode custom) {
@@ -311,6 +316,17 @@ public final class DocumentModelConverter {
             return "LEFT";
         }
         return alignment.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+    }
+
+    private static String normalizeTocItemMode(String itemMode) {
+        if (isBlank(itemMode)) {
+            return "TEXT";
+        }
+        String normalized = itemMode.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        if (!"TEXT".equals(normalized) && !"LINK".equals(normalized)) {
+            return "TEXT";
+        }
+        return normalized;
     }
 
     private static List<IntermediateListItem> convertFluentListItems(List<FluentListItemNode> itemNodes) {

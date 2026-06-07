@@ -44,9 +44,11 @@
   },
   "nodes": [
     {
-      "title": "Document Outline",
+      "title": "Table of Contents",
       "titleLevel": 1,
-      "maxDepth": 2
+      "maxDepth": 2,
+      "itemMode": "LINK",
+      "showPageNumbers": true
     },
     {
       "section": {

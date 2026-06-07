@@ -278,6 +278,8 @@ public final class JsonParser {
         toc.title = text(node, "title");
         toc.titleLevel = integer(node, "titleLevel");
         toc.maxDepth = integer(node, "maxDepth");
+        toc.itemMode = text(node, "itemMode");
+        toc.showPageNumbers = bool(node, "showPageNumbers");
         toc.semantic = parseSemanticMetadata(node.path("semantic"));
         return toc;
     }

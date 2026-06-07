@@ -467,6 +467,70 @@ class A11yPdfDocumentLayoutTest {
     }
 
         @Test
+        void fromDeclarative_toc_shouldShowPageNumbersAndGoToLinks() throws IOException {
+                String json = """
+                                {
+                                    "lang": "en-US",
+                                    "title": "TOC Link Check",
+                                    "displayDocTitle": true,
+                                    "page": {
+                                        "columns": 1,
+                                        "columnGap": 0,
+                                        "pageWidth": 240,
+                                        "pageHeight": 180,
+                                        "marginTop": 20,
+                                        "marginRight": 20,
+                                        "marginBottom": 20,
+                                        "marginLeft": 20
+                                    },
+                                    "nodes": [
+                                        {
+                                            "title": "Contents",
+                                            "maxDepth": 2,
+                                            "itemMode": "LINK",
+                                            "showPageNumbers": true
+                                        },
+                                        {
+                                            "level": 1,
+                                            "text": "Intro"
+                                        },
+                                        {
+                                            "text": "Body paragraph to keep the document simple while still leaving room for TOC page numbers and link annotations."
+                                        },
+                                        {
+                                            "level": 1,
+                                            "text": "Details"
+                                        },
+                                        {
+                                            "text": "Another paragraph to create a second heading target for the TOC link test."
+                                        }
+                                    ]
+                                }
+                                """;
+
+                DeclarativeDocument doc = com.likide.a11y.pdf.json.JsonParser.parse(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+                byte[] pdf = A11yPdfDocument.fromDeclarative(doc).buildBytes();
+
+                try (PDDocument rendered = Loader.loadPDF(pdf)) {
+                        String extracted = new PDFTextStripper().getText(rendered);
+                        assertTrue(extracted.contains("Contents"));
+                        assertTrue(extracted.matches("(?s).*\\b\\d+\\b.*"), "TOC should include page numbers");
+
+                        boolean hasGoToLink = false;
+                        for (org.apache.pdfbox.pdmodel.PDPage page : rendered.getPages()) {
+                                for (org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotation annotation : page.getAnnotations()) {
+                                        if (annotation instanceof org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink link
+                                                        && link.getAction() instanceof org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo) {
+                                                hasGoToLink = true;
+                                        }
+                                }
+                        }
+
+                        assertTrue(hasGoToLink, "TOC should create internal page links in LINK mode");
+                }
+        }
+
+        @Test
         void fromDeclarative_pageChrome_shouldParseAndRenderHeaderFooterText() throws IOException {
                 String json = """
                                 {
