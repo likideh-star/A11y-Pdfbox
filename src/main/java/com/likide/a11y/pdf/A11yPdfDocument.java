@@ -2483,10 +2483,10 @@ public final class A11yPdfDocument {
                 return (listBlock.start + itemIndex) + ". ";
             }
             return switch (listBlock.bulletStyle) {
-                case DISC -> "* ";
-                case CIRCLE -> "o ";
-                case SQUARE -> "+ ";
-                case DASH -> "- ";
+                case DISC -> "• ";
+                case CIRCLE -> "○ ";
+                case SQUARE -> "■ ";
+                case DASH -> "— ";
                 case CUSTOM -> listBlock.customMarker + " ";
             };
         }
