@@ -55,16 +55,18 @@ This is the comprehensive, unified Product Requirements Document (PRD) and Techn
 
 ## 1. Project Overview & Guiding Principle
 
-## The objective of this library is to provide a semantically driven layout engine on top of Apache PDFBox 3.0.x. Because PDFBox treats a document as a purely visual, absolute-positioned canvas, this library abstracts the low-level coordinate calculations and handles both visual layout flow and the simultaneous injection of the Tagged PDF logical structure tree (PDStructureTreeRoot). The final output must pass automated machine accessibility checkers (e.g., veraPDF Engine, Adobe Acrobat Pro Accessibility Check) and comply with strict PDF/UA-1 (ISO 14289-1) criteria.
+The objective of this library is to provide a semantically driven layout engine on top of Apache PDFBox 3.0.x. Because PDFBox treats a document as a purely visual, absolute-positioned canvas, this library abstracts the low-level coordinate calculations and handles both visual layout flow and the simultaneous injection of the Tagged PDF logical structure tree (PDStructureTreeRoot). The final output must pass automated machine accessibility checkers (e.g., veraPDF Engine, Adobe Acrobat Pro Accessibility Check) and comply with strict PDF/UA-1 (ISO 14289-1) criteria.
 
-## 2. Core Architectural & Engine Requirements## 2.1 Dual-Pass Execution Model
+## 2. Core Architectural & Engine Requirements
+
+### 2.1 Dual-Pass Execution Model
 
 To manage dynamic sizing, column breaks, and structural tag mapping without breaking PDFBox sequential writing streams, the layout engine must implement a strict dual-pass lifecycle:
 
 - Pass 1 (Sizing, Flow & Constraints Analysis): Traverses the input Document Model tree, computes text wrapping based on active boundary widths, evaluates padding/margins, tracks column/page overflows, resolves heights, and constructs the structural node topology in memory.
 - Pass 2 (Binary Generation & Structural Stitching): Iterates over the structured layout blueprint, draws text, background shapes, or imagery into the PDPageContentStream, wraps layout elements in Marked Content blocks (BDC/EMC operators), and maps them back to the semantic structure tree via incremental Marked Content IDs (MCID).
 
-## 2.2 API Paradigms
+### 2.2 API Paradigms
 
 The engine must support two public-facing input interfaces concurrently, feeding into the exact same intermediate object model representation:
 
@@ -73,7 +75,7 @@ The engine must support two public-facing input interfaces concurrently, feeding
 
 ---
 
-## 3. Layout Model Requirements## 3.1 Advanced CSS-Style Box Model
+### 3. Layout Model Requirements## 3.1 Advanced CSS-Style Box Model
 
 Every block-level element must support a subset of the standard box model framework to establish structural whitespace and visual containers:
 
@@ -81,7 +83,7 @@ Every block-level element must support a subset of the standard box model framew
 - Margin-Bottom: Elements accept a marginBottom property in typographic points. This defines the minimum dead space before the next element's boundary starts.
 - Line-Height: Text blocks accept a custom lineHeight multiplier (default 1.2f), which scales the vertical distance between lines mathematically: $\text{Spacing} = \text{Font Size} \times \text{lineHeight}$.
 
-## 3.2 Multi-Column Layout Architecture
+### 3.2 Multi-Column Layout Architecture
 
 - Column Grid Metrics: Pages must accept configuration inputs for an arbitrary column count ($N$) and a specific column gap size in points.
 - Tracking Cursors: The layout engine tracks execution through a contextual status keeping tabs on currentColumnIndex, currentColumnX, and currentY.
@@ -102,14 +104,14 @@ To allow localized typographic styling, font assignments cascade down the DOM hi
 1.  Element Overrides: Check if a custom font family is assigned to the current active element. If null, check recursively up through its parent elements (e.g., Cell $\rightarrow$ Row $\rightarrow$ Table).
 2.  Global Base Fallback: If no component has an explicit font mapping, adopt the document's globally configured primary font.
 
-## 4.2 Font Family Wrapper & Styling Variants
+### 4.2 Font Family Wrapper & Styling Variants
 
 To guarantee valid PDF/UA text-to-glyph mappings, procedural transformation matrix overrides (such as faux-bold or faux-italic font rendering via code stretching) are strictly forbidden.
 
 - The library must introduce an A11yFontFamily asset container that maps to four discrete, embedded TrueType or OpenType font files: REGULAR, BOLD, ITALIC, and BOLD_ITALIC (PDType0Font).
 - Elements toggle these via boolean flags (.bold(true) / .italic(true)), forcing the engine to resolve the exact physical font file required. If a specific variant file is missing, the engine gracefully falls back to the REGULAR font file and flags a system warning.
 
-## 4.3 Automated Font Fallback & Glyph Chunking Engine
+### 4.3 Automated Font Fallback & Glyph Chunking Engine
 
 To fulfill PDF/UA Unicode mapping specifications when using localized text or symbols missing from primary fonts:
 
@@ -155,7 +157,7 @@ The bullet marker resides within the /Lbl structure block, while the list text r
 
 $\text{Content Position } X = \text{Current } X + \text{paddingLeft} + \text{bulletWidth}$
 
-## 6.2 Image Grid Flow Interactions
+### 6.2 Image Grid Flow Interactions
 
 Images (Figure elements) within multi-column grids must support two explicit structural behaviors:
 
@@ -165,7 +167,7 @@ $\text{Scale Ratio} = \frac{W_{\text{col}}}{W_{\text{img}}}$
 
 If the scaled height exceeds the remaining column depth, the entire image block moves to the top of the next column or page. 2. Full Page Width Span (ImageFlow.SPAN_ALL_COLUMNS): The image breaks out of the column system to span the entire page width (minus page margins). The layout engine pauses content rendering in all active columns, balances them horizontally, embeds the full-width image, and then resets the multi-column cursor below the image to resume column flow.
 
-## 6.3 Automated Pagination & Document Summaries
+### 6.3 Automated Pagination & Document Summaries
 
 - Artifact Isolation: All structural background geometry, page boundaries, header/footer elements, and dynamic page number strings ("Page X of Y") must be explicitly tagged as /Artifact content blocks. This ensures screen readers ignore them during reading sequences.
 - Table of Contents (TOC): Document summaries must map to a parent TOC structure containing structural TOCI (TOC Item) nodes. These items must link back to their target components using structural references (/Ref), and the pages must enforce proper tab ordering (/Tabs /S).
