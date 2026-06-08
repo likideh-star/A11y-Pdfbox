@@ -4,7 +4,9 @@
   "displayDocTitle": true,
   "page": {
     "columns": 1,
-    "columnGap": 0
+    "columnGap": 0,
+    "contentPaddingTop": 15,
+    "contentPaddingBottom": 10
   },
    "pageChrome": {
     "headerText": {
