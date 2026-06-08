@@ -1541,8 +1541,10 @@ public final class A11yPdfDocument {
                 }
                 LayoutBlueprint layoutBlueprint = analyzeLayout();
                 for (TocEntry entry : buildTocEntries(layoutBlueprint, tocBlock.maxDepth)) {
-                    String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
-                    content += wrapText(line, Math.max(1.0f, contentWidth), 11.0f * 0.5f).size() * 13.2f;
+                    float fontSize = resolveTocEntryFontSize(entry.level());
+                    float leading = resolveTocEntryLeading(entry.level());
+                    float textWrapWidth = resolveEstimatedTocTextWrapWidth(contentWidth, entry.level(), tocBlock.showPageNumbers);
+                    content += wrapText(entry.text(), Math.max(1.0f, textWrapWidth), fontSize * 0.5f).size() * leading;
                 }
                 return content + 8.0f;
             }
@@ -1669,11 +1671,34 @@ public final class A11yPdfDocument {
                     int tocPageCount = estimateTocPageCount(tocBlock, tocEntries, contentWidth, 1, 0.0f, y);
                     int currentTocElementIndex = currentElementIndex;
                     for (TocEntry entry : tocEntries) {
-                        String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
+                        float entryFontSize = resolveTocEntryFontSize(entry.level());
+                        float entryLeading = resolveTocEntryLeading(entry.level());
                         int targetPageNumber = resolveTocTargetPageNumber(entry, tocPageCount, currentTocElementIndex);
-                        String displayLine = tocBlock.showPageNumbers ? line + " " + targetPageNumber : line;
-                        renderTocEntryLine(doc, page, fontRuntimes, tocBlock, displayLine, targetPageNumber, x, y, contentWidth);
-                        y -= 13.2f;
+                        float textWrapWidth = resolveTocEntryTextWrapWidth(
+                                fontRuntimes,
+                                entry.level(),
+                                tocBlock.showPageNumbers,
+                                targetPageNumber,
+                                contentWidth,
+                                entryFontSize);
+                        List<String> lines = wrapText(entry.text(), Math.max(1.0f, textWrapWidth), entryFontSize * 0.5f);
+                        for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                            boolean lastLine = lineIndex == lines.size() - 1;
+                            renderTocEntryLine(
+                                    doc,
+                                    page,
+                                    fontRuntimes,
+                                    tocBlock,
+                                    entry.level(),
+                                    lines.get(lineIndex),
+                                    lastLine,
+                                    targetPageNumber,
+                                    x,
+                                    y,
+                                    contentWidth,
+                                    entryFontSize);
+                            y -= entryLeading;
+                        }
                     }
                     if (currentTocElementIndex >= 0) {
                         tocPageSpans.add(new TocPageSpan(currentTocElementIndex, tocPageCount));
@@ -1952,12 +1977,20 @@ public final class A11yPdfDocument {
             for (int entryIndex = 0; entryIndex < entries.size(); entryIndex++) {
                 TocEntry entry = entries.get(entryIndex);
                 currentItemSlot = referenceSlots.get(entryIndex);
-                String entryText = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
-                List<String> lines = wrapText(entryText, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f);
+                float entryFontSize = resolveTocEntryFontSize(entry.level());
+                float entryLeading = resolveTocEntryLeading(entry.level());
                 int targetPageNumber = resolveTocTargetPageNumber(entry, tocPageCount, elementIndex);
+                float textWrapWidth = resolveTocEntryTextWrapWidth(
+                        fontRuntimes,
+                        entry.level(),
+                        tocBlock.showPageNumbers,
+                        targetPageNumber,
+                        activeColumnWidth,
+                        entryFontSize);
+                List<String> lines = wrapText(entry.text(), Math.max(1.0f, textWrapWidth), entryFontSize * 0.5f);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     String line = lines.get(lineIndex);
-                    if (y - 13.2f < marginBottom) {
+                    if (y - entryLeading < marginBottom) {
                         FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                         page = next.page();
                         columnIndex = next.columnIndex();
@@ -1966,12 +1999,21 @@ public final class A11yPdfDocument {
                     float x = activeColumns <= 1
                             ? marginLeft
                             : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
-                        boolean lastLine = lineIndex == lines.size() - 1;
-                        String displayLine = tocBlock.showPageNumbers && lastLine
-                            ? line + " " + targetPageNumber
-                            : line;
-                        renderTocEntryLine(doc, page, fontRuntimes, tocBlock, displayLine, targetPageNumber, x, y, activeColumnWidth);
-                    y -= 13.2f;
+                    boolean lastLine = lineIndex == lines.size() - 1;
+                    renderTocEntryLine(
+                            doc,
+                            page,
+                            fontRuntimes,
+                            tocBlock,
+                            entry.level(),
+                            line,
+                            lastLine,
+                            targetPageNumber,
+                            x,
+                            y,
+                            activeColumnWidth,
+                            entryFontSize);
+                    y -= entryLeading;
                 }
                 currentItemSlot = -1;
             }
@@ -2023,9 +2065,11 @@ public final class A11yPdfDocument {
             }
 
             for (TocEntry entry : entries) {
-                String line = "  ".repeat(Math.max(0, entry.level() - 1)) + entry.text();
-                for (String ignored : wrapText(line, Math.max(1.0f, activeColumnWidth), 11.0f * 0.5f)) {
-                    if (y - 13.2f < marginBottom) {
+                float entryFontSize = resolveTocEntryFontSize(entry.level());
+                float entryLeading = resolveTocEntryLeading(entry.level());
+                float textWrapWidth = resolveEstimatedTocTextWrapWidth(activeColumnWidth, entry.level(), tocBlock.showPageNumbers);
+                for (String ignored : wrapText(entry.text(), Math.max(1.0f, textWrapWidth), entryFontSize * 0.5f)) {
+                    if (y - entryLeading < marginBottom) {
                         if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
                             columnIndex++;
                         } else {
@@ -2034,7 +2078,7 @@ public final class A11yPdfDocument {
                         }
                         y = pageHeight - marginTop;
                     }
-                    y -= 13.2f;
+                    y -= entryLeading;
                 }
             }
 
@@ -2079,14 +2123,45 @@ public final class A11yPdfDocument {
                 PDPage page,
                 Map<String, FontRuntime> fontRuntimes,
                 TocBlock tocBlock,
-                String displayLine,
+                int entryLevel,
+                String lineText,
+                boolean renderPageNumber,
                 int targetPageNumber,
                 float x,
                 float y,
-                float contentWidth) throws IOException {
+                float contentWidth,
+                float fontSize) throws IOException {
             String structureTag = tocBlock.itemMode == TocItemMode.LINK ? StandardStructureTypes.LINK : "Reference";
+            float indent = resolveTocEntryIndent(entryLevel);
+            float textX = x + indent;
+            String resolvedLineText = lineText == null ? "" : lineText;
             try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                drawTaggedChunkedLine(cs, structureTag, fontRuntimes, null, null, FontVariant.REGULAR, 11.0f, x, y, displayLine);
+                beginTaggedMarkedContent(cs, structureTag);
+                try {
+                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, fontSize, textX, y, resolvedLineText);
+
+                    if (tocBlock.showPageNumbers && renderPageNumber) {
+                        FontRuntime runtime = fontRuntimes.getOrDefault("default", null);
+                        if (runtime != null) {
+                            String pageText = Integer.toString(targetPageNumber);
+                            float numberWidth = measureChunkedTextWidth(runtime, FontVariant.REGULAR, fontSize, pageText);
+                            float numberX = x + Math.max(1.0f, contentWidth) - numberWidth;
+                            float textWidth = measureChunkedTextWidth(runtime, FontVariant.REGULAR, fontSize, resolvedLineText);
+                            float dotStartX = textX + textWidth + 4.0f;
+                            float dotEndX = numberX - 4.0f;
+                            if (dotEndX > dotStartX) {
+                                float dotWidth = Math.max(0.1f, measureChunkedTextWidth(runtime, FontVariant.REGULAR, fontSize, "."));
+                                int dotCount = Math.max(0, (int) Math.floor((dotEndX - dotStartX) / dotWidth));
+                                if (dotCount > 0) {
+                                    drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, fontSize, dotStartX, y, ".".repeat(dotCount));
+                                }
+                            }
+                            drawChunkedLine(cs, fontRuntimes, null, null, FontVariant.REGULAR, fontSize, numberX, y, pageText);
+                        }
+                    }
+                } finally {
+                    cs.endMarkedContent();
+                }
             }
             if (!suppressTocLinkAnnotations && tocBlock.itemMode == TocItemMode.LINK) {
                 tocLinkAnnotationPlans.add(new TocLinkAnnotationPlan(
@@ -2100,6 +2175,46 @@ public final class A11yPdfDocument {
                         currentItemSlot));
             }
         }
+
+            private float resolveTocEntryFontSize(int level) {
+                int normalizedLevel = Math.max(1, level);
+                return Math.max(9.0f, 12.0f - (normalizedLevel - 1));
+            }
+
+            private float resolveTocEntryLeading(int level) {
+                return resolveTocEntryFontSize(level) * 1.2f;
+            }
+
+            private float resolveTocEntryIndent(int level) {
+                return Math.max(0, level - 1) * 10.0f;
+            }
+
+            private float resolveEstimatedTocTextWrapWidth(float contentWidth, int level, boolean showPageNumbers) {
+                float width = Math.max(1.0f, contentWidth - resolveTocEntryIndent(level));
+                if (!showPageNumbers) {
+                    return width;
+                }
+                return Math.max(1.0f, width - 32.0f);
+            }
+
+            private float resolveTocEntryTextWrapWidth(
+                    Map<String, FontRuntime> fontRuntimes,
+                    int level,
+                    boolean showPageNumbers,
+                    int targetPageNumber,
+                    float contentWidth,
+                    float fontSize) throws IOException {
+                float width = Math.max(1.0f, contentWidth - resolveTocEntryIndent(level));
+                if (!showPageNumbers) {
+                    return width;
+                }
+                FontRuntime runtime = fontRuntimes.getOrDefault("default", null);
+                if (runtime == null) {
+                    return Math.max(1.0f, width - 32.0f);
+                }
+                float numberWidth = measureChunkedTextWidth(runtime, FontVariant.REGULAR, fontSize, Integer.toString(targetPageNumber));
+                return Math.max(1.0f, width - numberWidth - 8.0f);
+            }
 
         private void applyTocLinkAnnotations(PDDocument doc) throws IOException {
             if (tocLinkAnnotationPlans.isEmpty()) {
