@@ -8,5 +8,9 @@ public record IntermediatePageSettings(
         float marginTop,
         float marginRight,
         float marginBottom,
-        float marginLeft) {
+        float marginLeft,
+        float contentPaddingTop,
+        float contentPaddingRight,
+        float contentPaddingBottom,
+        float contentPaddingLeft) {
 }

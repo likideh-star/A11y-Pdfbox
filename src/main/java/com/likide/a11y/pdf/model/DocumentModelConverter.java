@@ -124,7 +124,11 @@ public final class DocumentModelConverter {
                     DEFAULT_MARGIN,
                     DEFAULT_MARGIN,
                     DEFAULT_MARGIN,
-                    DEFAULT_MARGIN);
+                    DEFAULT_MARGIN,
+                    0.0f,
+                    0.0f,
+                    0.0f,
+                    0.0f);
         }
 
         int columns = page.columns == null ? 1 : page.columns;
@@ -135,6 +139,10 @@ public final class DocumentModelConverter {
         float marginRight = page.marginRight == null ? DEFAULT_MARGIN : page.marginRight;
         float marginBottom = page.marginBottom == null ? DEFAULT_MARGIN : page.marginBottom;
         float marginLeft = page.marginLeft == null ? DEFAULT_MARGIN : page.marginLeft;
+        float contentPaddingTop = page.contentPaddingTop == null ? 0.0f : page.contentPaddingTop;
+        float contentPaddingRight = page.contentPaddingRight == null ? 0.0f : page.contentPaddingRight;
+        float contentPaddingBottom = page.contentPaddingBottom == null ? 0.0f : page.contentPaddingBottom;
+        float contentPaddingLeft = page.contentPaddingLeft == null ? 0.0f : page.contentPaddingLeft;
 
         if (columns < 1) {
             throw new ValidationException("columns must be >= 1");
@@ -143,7 +151,7 @@ public final class DocumentModelConverter {
             throw new ValidationException("page size must be > 0");
         }
 
-        return new IntermediatePageSettings(columns, columnGap, pageWidth, pageHeight, marginTop, marginRight, marginBottom, marginLeft);
+        return new IntermediatePageSettings(columns, columnGap, pageWidth, pageHeight, marginTop, marginRight, marginBottom, marginLeft, contentPaddingTop, contentPaddingRight, contentPaddingBottom, contentPaddingLeft);
     }
 
     private static IntermediateNode convertNode(DeclarativeNode node) {

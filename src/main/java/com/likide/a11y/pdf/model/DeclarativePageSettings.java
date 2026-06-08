@@ -13,4 +13,8 @@ public final class DeclarativePageSettings {
     public Float marginRight;
     public Float marginBottom;
     public Float marginLeft;
+    public Float contentPaddingTop;
+    public Float contentPaddingRight;
+    public Float contentPaddingBottom;
+    public Float contentPaddingLeft;
 }

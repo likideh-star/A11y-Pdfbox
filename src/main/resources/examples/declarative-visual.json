@@ -4,7 +4,9 @@
   "displayDocTitle": true,
   "page": {
     "columns": 1,
-    "columnGap": 0
+    "columnGap": 0,
+    "contentPaddingTop": 15,
+    "contentPaddingBottom": 10
   },
    "pageChrome": {
     "headerText": {
@@ -40,6 +42,12 @@
       "bold":       "src/main/resources/fonts/Inter-Bold.ttf",
       "italic":     "src/main/resources/fonts/Inter-Italic.ttf",
       "boldItalic": "src/main/resources/fonts/Inter-BoldItalic.ttf"
+    },
+    "Helvetica": {
+      "regular":    "src/main/resources/fonts/Helvetica-Regular.ttf",
+      "bold":       "src/main/resources/fonts/Helvetica-Bold.ttf",
+      "italic":     "src/main/resources/fonts/Helvetica-Oblique.ttf",
+      "boldItalic": "src/main/resources/fonts/Helvetica-BoldOblique.ttf"
     }
   },
   "nodes": [
