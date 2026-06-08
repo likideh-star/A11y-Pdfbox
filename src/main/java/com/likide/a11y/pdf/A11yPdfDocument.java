@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -330,7 +331,22 @@ public final class A11yPdfDocument {
         if (pathString == null || pathString.isBlank()) {
             return null;
         }
-        return A11yFontFamily.FontSource.file(Path.of(pathString));
+        Path path = Path.of(pathString);
+        if (!path.isAbsolute() && !Files.exists(path)) {
+            // Fallback: resolve via classpath, stripping src/main/resources/ prefix if present
+            String resourceName = pathString.replace('\\', '/');
+            if (resourceName.startsWith("src/main/resources/")) {
+                resourceName = resourceName.substring("src/main/resources/".length());
+            }
+            try {
+                URL url = A11yPdfDocument.class.getClassLoader().getResource(resourceName);
+                if (url != null) {
+                    path = Path.of(url.toURI());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return A11yFontFamily.FontSource.file(path);
     }
 
     private static FontVariant parseFontVariant(String rawValue, FontVariant fallback) {
