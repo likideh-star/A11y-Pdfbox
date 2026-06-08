@@ -513,7 +513,9 @@ public final class A11yPdfDocument {
         private int nextAnnotationStructParent = 100000;
         private final List<TocPageSpan> tocPageSpans = new ArrayList<>();
         private Map<Integer, Integer> resolvedTocHeadingPages = Map.of();
+        private Map<Integer, Integer> resolvedTocHeadingTops = Map.of();
         private final Map<Integer, Integer> collectedHeadingPageNumbers = new LinkedHashMap<>();
+        private final Map<Integer, Integer> collectedHeadingTopValues = new LinkedHashMap<>();
         private boolean collectHeadingPageNumbers = false;
         private boolean suppressTocLinkAnnotations = false;
         private final Map<Integer, List<ListItemSlotPlan>> listItemSlotPlans = new LinkedHashMap<>();
@@ -1185,9 +1187,12 @@ public final class A11yPdfDocument {
         private void renderToDocument(PDDocument doc, boolean resolveTocTargets) throws IOException {
             if (resolveTocTargets) {
                 if (!isTextOnlyFlow() && containsTocBlock()) {
-                    resolvedTocHeadingPages = resolveTocHeadingPages();
+                    HeadingTargetResolution headingTargets = resolveTocHeadingTargets();
+                    resolvedTocHeadingPages = headingTargets.pages();
+                    resolvedTocHeadingTops = headingTargets.tops();
                 } else {
                     resolvedTocHeadingPages = Map.of();
+                    resolvedTocHeadingTops = Map.of();
                 }
             }
 
@@ -1203,6 +1208,7 @@ public final class A11yPdfDocument {
             nextAnnotationStructParent = 100000;
             tocPageSpans.clear();
             collectedHeadingPageNumbers.clear();
+            collectedHeadingTopValues.clear();
             listItemSlotPlans.clear();
             currentElementIndex = -1;
             currentRenderPage = null;
@@ -1379,31 +1385,38 @@ public final class A11yPdfDocument {
             return false;
         }
 
-        private Map<Integer, Integer> resolveTocHeadingPages() throws IOException {
+        private HeadingTargetResolution resolveTocHeadingTargets() throws IOException {
             Map<Integer, Integer> guess = Map.of();
+            Map<Integer, Integer> topGuess = Map.of();
             Map<Integer, Integer> previousResolved = resolvedTocHeadingPages;
+            Map<Integer, Integer> previousResolvedTops = resolvedTocHeadingTops;
             boolean previousCollect = collectHeadingPageNumbers;
             boolean previousSuppressLinks = suppressTocLinkAnnotations;
             try {
                 for (int pass = 0; pass < 3; pass++) {
                     resolvedTocHeadingPages = guess;
+                    resolvedTocHeadingTops = topGuess;
                     collectHeadingPageNumbers = true;
                     suppressTocLinkAnnotations = true;
                     try (PDDocument scratch = new PDDocument()) {
                         renderToDocument(scratch, false);
                     }
                     Map<Integer, Integer> computed = Map.copyOf(collectedHeadingPageNumbers);
-                    if (computed.equals(guess)) {
-                        return computed;
+                    Map<Integer, Integer> computedTops = Map.copyOf(collectedHeadingTopValues);
+                    if (computed.equals(guess) && computedTops.equals(topGuess)) {
+                        return new HeadingTargetResolution(computed, computedTops);
                     }
                     guess = computed;
+                    topGuess = computedTops;
                 }
-                return guess;
+                return new HeadingTargetResolution(guess, topGuess);
             } finally {
                 resolvedTocHeadingPages = previousResolved;
+                resolvedTocHeadingTops = previousResolvedTops;
                 collectHeadingPageNumbers = previousCollect;
                 suppressTocLinkAnnotations = previousSuppressLinks;
                 collectedHeadingPageNumbers.clear();
+                collectedHeadingTopValues.clear();
             }
         }
 
@@ -1693,6 +1706,7 @@ public final class A11yPdfDocument {
                                     lines.get(lineIndex),
                                     lastLine,
                                     targetPageNumber,
+                                    entry.sourceElementIndex(),
                                     x,
                                     y,
                                     contentWidth,
@@ -1751,6 +1765,8 @@ public final class A11yPdfDocument {
 
                 if (!capturedPage && collectHeadingPageNumbers && heading.includeInToc && currentElementIndex >= 0) {
                     collectedHeadingPageNumbers.putIfAbsent(currentElementIndex, resolveRenderedPageNumber(doc, page));
+                    int headingTop = Math.round(Math.min(pageHeight - marginTop, y + fontSize + 4.0f));
+                    collectedHeadingTopValues.putIfAbsent(currentElementIndex, headingTop);
                     capturedPage = true;
                 }
 
@@ -1779,6 +1795,14 @@ public final class A11yPdfDocument {
                 index++;
             }
             return Math.max(1, doc.getNumberOfPages());
+        }
+
+        private int resolveTocTargetTop(int sourceElementIndex) {
+            Integer top = resolvedTocHeadingTops.get(sourceElementIndex);
+            if (top != null && top > 0) {
+                return top;
+            }
+            return Math.round(pageHeight - marginTop);
         }
 
         private FlowCursor renderParagraphAcrossFlow(
@@ -2009,6 +2033,7 @@ public final class A11yPdfDocument {
                             line,
                             lastLine,
                             targetPageNumber,
+                            entry.sourceElementIndex(),
                             x,
                             y,
                             activeColumnWidth,
@@ -2127,6 +2152,7 @@ public final class A11yPdfDocument {
                 String lineText,
                 boolean renderPageNumber,
                 int targetPageNumber,
+                int targetElementIndex,
                 float x,
                 float y,
                 float contentWidth,
@@ -2171,6 +2197,7 @@ public final class A11yPdfDocument {
                         contentWidth,
                         13.2f,
                         targetPageNumber,
+                        targetElementIndex,
                         currentElementIndex,
                         currentItemSlot));
             }
@@ -2236,7 +2263,7 @@ public final class A11yPdfDocument {
                 PDActionGoTo action = new PDActionGoTo();
                 PDPageXYZDestination destination = new PDPageXYZDestination();
                 destination.setPage(doc.getPage(targetIndex));
-                destination.setTop(Math.round(pageHeight - marginTop));
+                destination.setTop(resolveTocTargetTop(plan.targetElementIndex()));
                 destination.setLeft(Math.round(marginLeft));
                 action.setDestination(destination);
                 link.setAction(action);
@@ -4311,12 +4338,16 @@ public final class A11yPdfDocument {
             float width,
             float height,
             int targetPageNumber,
+                int targetElementIndex,
             int elementIndex,
             int referenceSlot) {
         }
 
         private record TocLinkSlotKey(int elementIndex, int referenceSlot) {
     }
+
+        private record HeadingTargetResolution(Map<Integer, Integer> pages, Map<Integer, Integer> tops) {
+        }
 
     private record ListItemSlotPlan(int labelSlot, int bodySlot) {
     }
