@@ -2623,7 +2623,7 @@ public final class A11yPdfDocument {
                 }
 
                 page = addStructuredPage(doc);
-                y = pageHeight - marginTop;
+                y = contentStartY();
             }
         }
 
