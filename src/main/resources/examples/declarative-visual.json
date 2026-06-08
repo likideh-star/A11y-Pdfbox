@@ -40,6 +40,12 @@
       "bold":       "src/main/resources/fonts/Inter-Bold.ttf",
       "italic":     "src/main/resources/fonts/Inter-Italic.ttf",
       "boldItalic": "src/main/resources/fonts/Inter-BoldItalic.ttf"
+    },
+    "Helvetica": {
+      "regular":    "src/main/resources/fonts/Helvetica.ttf",
+      "bold":       "src/main/resources/fonts/Helvetica-Bold.ttf",
+      "italic":     "src/main/resources/fonts/Helvetica-Oblique.ttf",
+      "boldItalic": "src/main/resources/fonts/Helvetica-BoldOblique.ttf"
     }
   },
   "nodes": [
