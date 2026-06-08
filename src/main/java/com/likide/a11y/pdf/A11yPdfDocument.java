@@ -2125,6 +2125,7 @@ public final class A11yPdfDocument {
                 destination.setLeft(Math.round(marginLeft));
                 action.setDestination(destination);
                 link.setAction(action);
+                link.setPage(plan.page());
                 plan.page().getAnnotations().add(link);
                 if (plan.elementIndex() >= 0 && plan.referenceSlot() >= 0) {
                     tocLinkAnnotationsBySlot
@@ -3426,8 +3427,12 @@ public final class A11yPdfDocument {
                         annotation.getCOSObject().setInt(COSName.STRUCT_PARENT, structParent);
                         objectParentTreeEntries.put(structParent, linkElem);
 
-                        PDObjectReference objRef = new PDObjectReference();
-                        objRef.setReferencedObject(annotation);
+                        COSDictionary objrDict = new COSDictionary();
+                        objrDict.setItem(COSName.TYPE, COSName.getPDFName("OBJR"));
+                        objrDict.setItem(COSName.OBJ, annotation.getCOSObject()); // Link to physical annotation
+                        objrDict.setItem(COSName.PG, annotation.getPage().getCOSObject());             // Link to parent page
+
+                        PDObjectReference objRef = new PDObjectReference(objrDict);
                         linkElem.appendKid(objRef);
                     }
 
