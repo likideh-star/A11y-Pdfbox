@@ -148,6 +148,10 @@ public final class JsonParser {
         page.marginRight = floating(node, "marginRight");
         page.marginBottom = floating(node, "marginBottom");
         page.marginLeft = floating(node, "marginLeft");
+        page.contentPaddingTop = floating(node, "contentPaddingTop");
+        page.contentPaddingRight = floating(node, "contentPaddingRight");
+        page.contentPaddingBottom = floating(node, "contentPaddingBottom");
+        page.contentPaddingLeft = floating(node, "contentPaddingLeft");
         return page;
     }
 

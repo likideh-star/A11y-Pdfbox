@@ -115,7 +115,12 @@ public final class A11yPdfDocument {
                         model.pageSettings().marginTop(),
                         model.pageSettings().marginRight(),
                         model.pageSettings().marginBottom(),
-                        model.pageSettings().marginLeft());
+                        model.pageSettings().marginLeft())
+                .contentPadding(
+                        model.pageSettings().contentPaddingTop(),
+                        model.pageSettings().contentPaddingRight(),
+                        model.pageSettings().contentPaddingBottom(),
+                        model.pageSettings().contentPaddingLeft());
 
         // Apply font family registrations from JSON
         for (Map.Entry<String, DeclarativeFontConfig> entry : document.fonts.entrySet()) {
@@ -506,6 +511,10 @@ public final class A11yPdfDocument {
         private float marginRight = DEFAULT_PAGE_MARGIN;
         private float marginBottom = DEFAULT_PAGE_MARGIN;
         private float marginLeft = DEFAULT_PAGE_MARGIN;
+        private float contentPaddingTop = 0.0f;
+        private float contentPaddingRight = 0.0f;
+        private float contentPaddingBottom = 0.0f;
+        private float contentPaddingLeft = 0.0f;
         private ArtifactText headerTextArtifact;
         private ArtifactText footerTextArtifact;
         private ArtifactLink headerLinkArtifact;
@@ -597,6 +606,21 @@ public final class A11yPdfDocument {
 
         public Builder pageMargin(float value) {
             return pageMargins(value, value, value, value);
+        }
+
+        public Builder contentPadding(float top, float right, float bottom, float left) {
+            if (top < 0.0f || right < 0.0f || bottom < 0.0f || left < 0.0f) {
+                throw new ValidationException("content padding must be >= 0");
+            }
+            this.contentPaddingTop = top;
+            this.contentPaddingRight = right;
+            this.contentPaddingBottom = bottom;
+            this.contentPaddingLeft = left;
+            return this;
+        }
+
+        public Builder contentPadding(float value) {
+            return contentPadding(value, value, value, value);
         }
 
         public Builder paragraph(String text) {
@@ -986,7 +1010,11 @@ public final class A11yPdfDocument {
                             marginTop,
                             marginRight,
                             marginBottom,
-                            marginLeft),
+                            marginLeft,
+                            contentPaddingTop,
+                            contentPaddingRight,
+                            contentPaddingBottom,
+                            contentPaddingLeft),
                     List.copyOf(nodes));
         }
 
@@ -1242,10 +1270,10 @@ public final class A11yPdfDocument {
                 return;
             }
 
-            float contentWidth = pageWidth - marginLeft - marginRight;
+            float contentWidth = pageWidth - contentLeftX() - contentRightX();
 
             PDPage page = addStructuredPage(doc);
-            float y = pageHeight - marginTop;
+            float y = contentStartY();
             int activeColumns = columns;
             float activeColumnGap = columnGap;
             int activeColumnIndex = 0;
@@ -1260,7 +1288,7 @@ public final class A11yPdfDocument {
                     activeColumnGap = sectionOverride.columnGap;
                     activeColumnIndex = 0;
                     page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
+                    y = contentStartY();
                     continue;
                 }
 
@@ -1269,7 +1297,7 @@ public final class A11yPdfDocument {
                             doc,
                             page,
                             y,
-                            marginLeft,
+                            contentLeftX(),
                             listBlock,
                             fontRuntimes);
                     page = cursor.page();
@@ -1283,7 +1311,7 @@ public final class A11yPdfDocument {
                             doc,
                             page,
                             y,
-                            marginLeft,
+                            contentLeftX(),
                             contentWidth,
                             tableBlock,
                         elemIdx,
@@ -1369,19 +1397,19 @@ public final class A11yPdfDocument {
                 }
 
                 float needed = estimateHeight(element, activeColumnWidth);
-                if (y - needed < marginBottom) {
+                if (y - needed < contentBottomBound()) {
                     if (activeColumns > 1 && activeColumnIndex + 1 < activeColumns) {
                         activeColumnIndex++;
-                        y = pageHeight - marginTop;
+                        y = contentStartY();
                     } else {
                         page = addStructuredPage(doc);
-                        y = pageHeight - marginTop;
+                        y = contentStartY();
                         activeColumnIndex = 0;
                     }
                 }
 
                 float activeX = activeColumns <= 1
-                        ? marginLeft
+                        ? contentLeftX()
                         : resolveColumnX(activeColumnIndex, activeColumns, activeColumnGap);
 
                 y = renderElement(doc, page, fontRuntimes, element, activeX, y, activeColumnWidth);
@@ -1437,7 +1465,7 @@ public final class A11yPdfDocument {
         }
 
         private boolean isTextOnlyFlow() {
-            float usableHeight = pageHeight - marginTop - marginBottom;
+            float usableHeight = pageHeight - (marginTop + contentPaddingTop) - (marginBottom + contentPaddingBottom);
             int activeColumns = columns;
             float activeColumnGap = columnGap;
 
@@ -1454,7 +1482,7 @@ public final class A11yPdfDocument {
 
                 if (element instanceof Heading || element instanceof Paragraph) {
                     float activeColumnWidth = activeColumns <= 1
-                            ? pageWidth - marginLeft - marginRight
+                            ? pageWidth - contentLeftX() - contentRightX()
                             : resolveColumnWidth(activeColumns, activeColumnGap);
                     MeasuredBlock measured = measureBlock(element, activeColumnWidth);
                     // Oversized text blocks need line-level continuation across pages/columns.
@@ -1772,7 +1800,7 @@ public final class A11yPdfDocument {
             boolean capturedPage = false;
 
             for (String line : lines) {
-                if (y - leading < marginBottom) {
+                if (y - leading < contentBottomBound()) {
                     FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                     page = next.page();
                     columnIndex = next.columnIndex();
@@ -1787,7 +1815,7 @@ public final class A11yPdfDocument {
                 }
 
                 float x = activeColumns <= 1
-                        ? marginLeft
+                        ? contentLeftX()
                         : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                 float textX = x + heading.boxModel.paddingLeft();
 
@@ -1818,7 +1846,7 @@ public final class A11yPdfDocument {
             if (top != null && top > 0) {
                 return top;
             }
-            return Math.round(pageHeight - marginTop);
+            return Math.round(contentStartY());
         }
 
         private FlowCursor renderParagraphAcrossFlow(
@@ -1844,7 +1872,7 @@ public final class A11yPdfDocument {
 
             int lineIndex = 0;
             while (lineIndex < lines.size()) {
-                if (y - leading < marginBottom) {
+                if (y - leading < contentBottomBound()) {
                     FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                     page = next.page();
                     columnIndex = next.columnIndex();
@@ -1852,7 +1880,7 @@ public final class A11yPdfDocument {
                 }
 
                 float x = activeColumns <= 1
-                        ? marginLeft
+                        ? contentLeftX()
                         : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                 float textX = x + paragraph.boxModel.paddingLeft();
 
@@ -1861,7 +1889,7 @@ public final class A11yPdfDocument {
                     beginTaggedMarkedContent(cs, StandardStructureTypes.P);
                     try {
                         while (lineIndex < lines.size()) {
-                            if (y - leading < marginBottom) {
+                            if (y - leading < contentBottomBound()) {
                                 break;
                             }
                             String line = lines.get(lineIndex++);
@@ -1906,11 +1934,11 @@ public final class A11yPdfDocument {
 
             float availableWidth = spanAllColumns ? fullContentWidth : activeColumnWidth;
             float x = spanAllColumns
-                    ? marginLeft
-                    : (activeColumns <= 1 ? marginLeft : resolveColumnX(columnIndex, activeColumns, activeColumnGap));
+                    ? contentLeftX()
+                    : (activeColumns <= 1 ? contentLeftX() : resolveColumnX(columnIndex, activeColumns, activeColumnGap));
 
             FigureRenderPlan plan = buildFigureRenderPlan(doc, figure, availableWidth);
-            if (y - plan.totalHeight() < marginBottom) {
+            if (y - plan.totalHeight() < contentBottomBound()) {
                 if (spanAllColumns) {
                     FlowCursor next = advanceTextFlow(doc, page, activeColumns - 1, activeColumns);
                     page = next.page();
@@ -1921,7 +1949,7 @@ public final class A11yPdfDocument {
                     page = next.page();
                     columnIndex = next.columnIndex();
                     y = next.y();
-                    x = activeColumns <= 1 ? marginLeft : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
+                    x = activeColumns <= 1 ? contentLeftX() : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                 }
             }
 
@@ -1997,14 +2025,14 @@ public final class A11yPdfDocument {
                 List<String> titleLines = wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f);
 
                 for (String line : titleLines) {
-                    if (y - 14.4f < marginBottom) {
+                    if (y - 14.4f < contentBottomBound()) {
                         FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                         page = next.page();
                         columnIndex = next.columnIndex();
                         y = next.y();
                     }
                     float x = activeColumns <= 1
-                            ? marginLeft
+                            ? contentLeftX()
                             : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
@@ -2030,14 +2058,14 @@ public final class A11yPdfDocument {
                 List<String> lines = wrapText(entry.text(), Math.max(1.0f, textWrapWidth), entryFontSize * 0.5f);
                 for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     String line = lines.get(lineIndex);
-                    if (y - entryLeading < marginBottom) {
+                    if (y - entryLeading < contentBottomBound()) {
                         FlowCursor next = advanceTextFlow(doc, page, columnIndex, activeColumns);
                         page = next.page();
                         columnIndex = next.columnIndex();
                         y = next.y();
                     }
                     float x = activeColumns <= 1
-                            ? marginLeft
+                            ? contentLeftX()
                             : resolveColumnX(columnIndex, activeColumns, activeColumnGap);
                     boolean lastLine = lineIndex == lines.size() - 1;
                     renderTocEntryLine(
@@ -2092,14 +2120,14 @@ public final class A11yPdfDocument {
 
             if (!title.isBlank()) {
                 for (String ignored : wrapText(title, Math.max(1.0f, activeColumnWidth), 12.0f * 0.55f)) {
-                    if (y - 14.4f < marginBottom) {
+                    if (y - 14.4f < contentBottomBound()) {
                         if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
                             columnIndex++;
                         } else {
                             pages++;
                             columnIndex = 0;
                         }
-                        y = pageHeight - marginTop;
+                        y = contentStartY();
                     }
                     y -= 14.4f;
                 }
@@ -2110,14 +2138,14 @@ public final class A11yPdfDocument {
                 float entryLeading = resolveTocEntryLeading(entry.level());
                 float textWrapWidth = resolveEstimatedTocTextWrapWidth(activeColumnWidth, entry.level(), tocBlock.showPageNumbers);
                 for (String ignored : wrapText(entry.text(), Math.max(1.0f, textWrapWidth), entryFontSize * 0.5f)) {
-                    if (y - entryLeading < marginBottom) {
+                    if (y - entryLeading < contentBottomBound()) {
                         if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
                             columnIndex++;
                         } else {
                             pages++;
                             columnIndex = 0;
                         }
-                        y = pageHeight - marginTop;
+                        y = contentStartY();
                     }
                     y -= entryLeading;
                 }
@@ -2280,7 +2308,7 @@ public final class A11yPdfDocument {
                 PDPageXYZDestination destination = new PDPageXYZDestination();
                 destination.setPage(doc.getPage(targetIndex));
                 destination.setTop(resolveTocTargetTop(plan.targetElementIndex()));
-                destination.setLeft(Math.round(marginLeft));
+                destination.setLeft(Math.round(contentLeftX()));
                 action.setDestination(destination);
                 link.setAction(action);
                 link.setPage(plan.page());
@@ -2378,10 +2406,10 @@ public final class A11yPdfDocument {
 
         private FlowCursor advanceTextFlow(PDDocument doc, PDPage page, int columnIndex, int activeColumns) {
             if (activeColumns > 1 && columnIndex + 1 < activeColumns) {
-                return new FlowCursor(page, columnIndex + 1, pageHeight - marginTop);
+                return new FlowCursor(page, columnIndex + 1, contentStartY());
             }
             PDPage nextPage = addStructuredPage(doc);
-            return new FlowCursor(nextPage, 0, pageHeight - marginTop);
+            return new FlowCursor(nextPage, 0, contentStartY());
         }
 
         private RenderCursor renderListAcrossPages(
@@ -2437,7 +2465,7 @@ public final class A11yPdfDocument {
             List<Float> rowHeights = new ArrayList<>();
             float maxBodyHeightPerPage = Math.max(
                     bodyLeading + (2.0f * cellPadding),
-                    pageHeight - marginTop - marginBottom - headerHeight + 4.0f);
+                    pageHeight - (marginTop + contentPaddingTop) - (marginBottom + contentPaddingBottom) - headerHeight + 4.0f);
             int maxLinesPerChunk = Math.max(1, (int) Math.floor((maxBodyHeightPerPage - (2.0f * cellPadding)) / bodyLeading));
             for (List<String> row : tableBlock.rows) {
                 List<List<String>> wrappedCells = new ArrayList<>();
@@ -2489,10 +2517,10 @@ public final class A11yPdfDocument {
             int rowStart = 0;
 
             while (true) {
-                float availableHeight = y + 4.0f - marginBottom;
+                float availableHeight = y + 4.0f - contentBottomBound();
                 if (availableHeight < headerHeight) {
                     page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
+                    y = contentStartY();
                     continue;
                 }
 
@@ -2510,7 +2538,7 @@ public final class A11yPdfDocument {
 
                 if (rowsThisPage == 0 && !rowHeights.isEmpty()) {
                     page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
+                    y = contentStartY();
                     continue;
                 }
 
@@ -2627,10 +2655,10 @@ public final class A11yPdfDocument {
             PageSettings settings = new PageSettings(
                     pageWidth,
                     pageHeight,
-                    marginTop,
-                    marginRight,
-                    marginBottom,
-                    marginLeft);
+                    marginTop + contentPaddingTop,
+                    marginRight + contentPaddingRight,
+                    marginBottom + contentPaddingBottom,
+                    marginLeft + contentPaddingLeft);
 
             float usableHeight = settings.usableHeight();
             float initialColumnWidth = settings.columnWidth(columns, columnGap);
@@ -2829,8 +2857,24 @@ public final class A11yPdfDocument {
             return contentWidth;
         }
 
+        private float contentStartY() {
+            return pageHeight - marginTop - contentPaddingTop;
+        }
+
+        private float contentBottomBound() {
+            return marginBottom + contentPaddingBottom;
+        }
+
+        private float contentLeftX() {
+            return marginLeft + contentPaddingLeft;
+        }
+
+        private float contentRightX() {
+            return marginRight + contentPaddingRight;
+        }
+
         private float resolveColumnWidth(int columnCount, float gap) {
-            float usableWidth = pageWidth - marginLeft - marginRight;
+            float usableWidth = pageWidth - contentLeftX() - contentRightX();
             float width = (usableWidth - ((columnCount - 1) * gap)) / columnCount;
             if (width <= 0.0f) {
                 throw new ValidationException("Section column settings leave no room for content");
@@ -2840,7 +2884,7 @@ public final class A11yPdfDocument {
 
         private float resolveColumnX(int columnIndex, int columnCount, float gap) {
             float columnWidth = resolveColumnWidth(columnCount, gap);
-            return marginLeft + (columnIndex * (columnWidth + gap));
+            return contentLeftX() + (columnIndex * (columnWidth + gap));
         }
 
         private Map<String, FontRuntime> loadFontRuntimes(PDDocument doc) {
@@ -3168,15 +3212,15 @@ public final class A11yPdfDocument {
                 Map<String, FontRuntime> fontRuntimes) throws IOException {
             float y = start.y() - listBlock.boxModel.marginTop() - listBlock.boxModel.paddingTop();
             PDPage page = start.page();
-            if (y <= marginBottom) {
+            if (y <= contentBottomBound()) {
                 page = addStructuredPage(doc);
-                y = pageHeight - marginTop;
+                y = contentStartY();
             }
 
             float contentX = x + listBlock.boxModel.paddingLeft();
             float bulletX = contentX + 12.0f;
             float averageCharWidth = 12.0f * 0.5f;
-            float availableTextWidth = pageWidth - bulletX - marginRight - listBlock.boxModel.paddingRight();
+            float availableTextWidth = pageWidth - bulletX - contentRightX() - listBlock.boxModel.paddingRight();
             if (availableTextWidth <= 0.0f) {
                 throw new ValidationException("List box model leaves no room for content");
             }
@@ -3197,9 +3241,9 @@ public final class A11yPdfDocument {
                         .add(new ListItemSlotPlan(labelSlot, bodySlot));
                 List<String> lines = wrapText(item.text, wrapWidth, averageCharWidth);
                 String marker = listItemPrefix(listBlock, itemIndex);
-                if (y - 14.4f < marginBottom) {
+                if (y - 14.4f < contentBottomBound()) {
                     page = addStructuredPage(doc);
-                    y = pageHeight - marginTop;
+                    y = contentStartY();
                 }
                 currentItemSlot = labelSlot;
                 try (PDPageContentStream cs = new PDPageContentStream(
@@ -3210,16 +3254,16 @@ public final class A11yPdfDocument {
                 int lineIndex = 0;
                 currentItemSlot = bodySlot;
                 while (lineIndex < lines.size()) {
-                    if (y - 14.4f < marginBottom) {
+                    if (y - 14.4f < contentBottomBound()) {
                         page = addStructuredPage(doc);
-                        y = pageHeight - marginTop;
+                        y = contentStartY();
                     }
                     try (PDPageContentStream cs = new PDPageContentStream(
                             doc, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                         beginTaggedMarkedContent(cs, "LBody");
                         try {
                             while (lineIndex < lines.size()) {
-                                if (y - 14.4f < marginBottom) {
+                                if (y - 14.4f < contentBottomBound()) {
                                     break;
                                 }
                                 String line = lines.get(lineIndex);
